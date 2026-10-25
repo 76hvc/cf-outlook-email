@@ -405,7 +405,33 @@ var SERVER_EN = {
   '临时邮箱不存在': 'Temp mailbox not found',
   '临时邮箱已删除': 'Temp mailbox deleted',
   '尚未执行': 'Not run yet',
+  // External API (import / inventory)
+  '对外 API 未启用：请在「系统设置」生成 API Key': 'External API is off: generate an API key in Settings',
+  'API Key 无效': 'Invalid API key',
+  '缺少 email 参数': 'Missing the email parameter',
+  'Token 获取失败': 'Failed to obtain a token',
+  '请求体不是合法 JSON': 'Request body is not valid JSON',
+  '请求体为空：请提供账号数据': 'Empty request body - provide account data',
+  'group_id 必须是整数': 'group_id must be an integer',
+  '没有可导入的账号数据': 'No account data to import',
+  '（邮箱均已存在）': ' (all emails already exist)',
+  '没有可导入的数据：请按 邮箱----密码----client_id----refresh_token 每行一个提供':
+    'Nothing to import: provide one account per line as email----password----client_id----refresh_token',
 };
+
+// Per-line import rejection reasons, surfaced verbatim inside summary messages
+// (backend: src/utils/accountImport.ts). Unknown reasons pass through.
+function importReasonEn(reason) {
+  if (/^字段不足/.test(reason)) {
+    return 'not enough fields (need 4 segments: email----password----client_id----refresh_token)';
+  }
+  var dup = /^同一请求内邮箱重复（第 (\d+) 行已包含）$/.exec(reason);
+  if (dup) return 'duplicate inside this request (already on line ' + dup[1] + ')';
+  if (reason === '该邮箱已存在') return 'this email already exists';
+  if (reason === '邮箱均已存在') return 'all emails already exist';
+  if (reason === '邮箱格式不正确') return 'invalid email format';
+  return reason;
+}
 
 // Pattern table for backend messages with dynamic parts. Each entry is
 // [regex, replacement] where replacement is a string ($1...) or a function.
@@ -444,6 +470,33 @@ var SERVER_EN_PATTERNS = [
   // Cron result summaries (stored in DB, shown on the settings page)
   [/^(.+) 刷新 (\d+) 个：成功 (\d+)，失败 (\d+)$/, '$1 refreshed $2 accounts: $3 ok, $4 failed'],
   [/^(.+) 推送：扫描 (\d+) 个账号，发送 (\d+) 条，失败账号 (.*)$/, '$1 push: scanned $2 accounts, sent $3 messages, failed accounts: $4'],
+  // Account import summaries (UI batch import + external API)
+  [/^成功添加 (\d+) 个账号(?:（(.*)）)?$/, function (m, added, extra) {
+    var s = 'Added ' + added + ' accounts';
+    if (!extra) return s;
+    var tail = extra
+      .replace(/重复 (\d+)/g, 'duplicate $1')
+      .replace(/无效 (\d+)/g, 'invalid $1')
+      .replace(/，/g, ', ');
+    return s + ' (' + tail + ')';
+  }],
+  [/^没有新账号被添加(?:(?:：|（)(.*?)[）]?)?$/, function (m, detail) {
+    return 'No new accounts were added' + (detail ? ': ' + importReasonEn(detail) : '');
+  }],
+  [/^已导入 (\d+) 条(?:，重复 (\d+) 条)?(?:，无效 (\d+) 条)?$/, function (m, ok, dup, bad) {
+    var s = 'Imported ' + ok;
+    if (dup) s += ', ' + dup + ' duplicate';
+    if (bad) s += ', ' + bad + ' invalid';
+    return s;
+  }],
+  [/^预检通过 (\d+) 条（未写入）(?:，重复 (\d+) 条)?(?:，无效 (\d+) 条)?$/, function (m, ok, dup, bad) {
+    var s = 'Dry run passed for ' + ok + ' (nothing written)';
+    if (dup) s += ', ' + dup + ' duplicate';
+    if (bad) s += ', ' + bad + ' invalid';
+    return s;
+  }],
+  [/^单次最多导入 (\d+) 条（本次 (\d+) 条），请分批提交$/, 'At most $1 accounts per request (got $2) - submit in batches'],
+  [/^分组不存在：group_id=(\d+)$/, 'Group not found: group_id=$1'],
 ];
 
 // ========== Core API ==========

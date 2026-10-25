@@ -4,6 +4,8 @@ import { query, first, run, batchRun, chunk, D1_MAX_BOUND_PARAMS } from '../db';
 import { ok, badRequest, notFound } from '../response';
 import { maskToken, isValidEmail } from '../utils/validation';
 import { getAccessToken } from '../graph';
+import { parseAccountPayload, MAX_IMPORT_ITEMS } from '../utils/accountImport';
+import { importAccounts, resolveGroupId } from '../importAccounts';
 
 const accounts = new Hono<{ Bindings: Env }>();
 
@@ -100,32 +102,40 @@ accounts.post('/', async (c) => {
     remark?: string;
   };
 
-  const groupId = body.group_id ?? 1;
+  // undefined → default group, without spending a query to look it up
+  const groupId = await resolveGroupId(c.env.DB, body.group_id);
+  if (groupId === null) return badRequest('分组不存在');
 
-  // Batch import mode
+  // Batch import mode (same parser as POST /api/external/accounts)
   if (body.account_string) {
-    const lines = body.account_string.trim().split('\n');
-    let added = 0;
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      const parts = trimmed.split('----');
-      if (parts.length >= 4) {
-        const [email, password, clientId, refreshToken] = parts;
-        try {
-          await run(
-            c.env.DB,
-            'INSERT INTO accounts (email, password, client_id, refresh_token, group_id) VALUES (?, ?, ?, ?, ?)',
-            [email.trim(), password.trim(), clientId.trim(), refreshToken.trim(), groupId]
-          );
-          added++;
-        } catch {
-          // Duplicate email, skip
-        }
-      }
+    const parsed = parseAccountPayload(body.account_string);
+    const total = parsed.accepted.length + parsed.rejected.length;
+    if (total === 0) return badRequest('没有可导入的账号数据');
+    if (total > MAX_IMPORT_ITEMS) {
+      return badRequest(`单次最多导入 ${MAX_IMPORT_ITEMS} 条（本次 ${total} 条），请分批提交`);
     }
-    if (added > 0) return ok({ added }, `成功添加 ${added} 个账号`);
-    return badRequest('没有新账号被添加（可能格式错误或已存在）');
+
+    const result = await importAccounts(c.env.DB, parsed, { groupId });
+    if (result.imported > 0) {
+      const extra: string[] = [];
+      if (result.duplicated) extra.push(`重复 ${result.duplicated}`);
+      if (result.invalid) extra.push(`无效 ${result.invalid}`);
+      return ok(
+        {
+          added: result.imported,
+          duplicated: result.duplicated,
+          invalid: result.invalid,
+          results: result.results,
+        },
+        `成功添加 ${result.imported} 个账号${extra.length ? `（${extra.join('，')}）` : ''}`
+      );
+    }
+
+    // Nothing imported: surface the first concrete reason instead of a vague hint
+    const firstInvalid = result.results.find((r) => r.status === 'invalid');
+    return badRequest(
+      `没有新账号被添加${firstInvalid?.reason ? `：${firstInvalid.reason}` : '（邮箱均已存在）'}`
+    );
   }
 
   // Single add mode
