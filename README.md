@@ -12,6 +12,7 @@
 [![Hono](https://img.shields.io/badge/Hono-4-E36002?logo=hono&logoColor=white)](https://hono.dev/)
 [![D1](https://img.shields.io/badge/D1-SQLite-003B57?logo=sqlite&logoColor=white)](https://developers.cloudflare.com/d1/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/76hvc/cf-outlook-email/pulls)
+[![CI](https://github.com/76hvc/cf-outlook-email/actions/workflows/ci.yml/badge.svg)](https://github.com/76hvc/cf-outlook-email/actions/workflows/ci.yml)
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/76hvc/cf-outlook-email)
 
@@ -133,9 +134,11 @@ Worker 页面 → **Settings** → **Variables and Secrets** → **Add** → 类
 | `ADMIN_PASSWORD` | 你的登录密码 |
 | `COOKIE_SECRET` | 随机长字符串 |
 
-工作流默认**手动触发**（Actions 页 → Deploy to Cloudflare → Run workflow）。
-想改成 push 自动部署，把文件里 `push:` 那两行取消注释——
-**但如果你已经用 Workers Builds 连了仓库，别两边都开**，会重复部署。
+工作流是**手动触发**的（Actions 页 → Deploy to Cloudflare → Run workflow）。
+日常自动部署交给 Workers Builds 就行——两者别同时开，会对同一个 Worker 重复部署。
+
+> 另有 `.github/workflows/ci.yml`：每次 push / PR 自动跑**类型检查、单元测试、i18n 覆盖率**，
+> 只检查不部署。改了 `migrations/*.sql` 却忘了提交重新生成的 `src/schema.ts` 也会被它挡下来。
 
 </details>
 

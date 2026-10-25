@@ -12,6 +12,7 @@
 [![Hono](https://img.shields.io/badge/Hono-4-E36002?logo=hono&logoColor=white)](https://hono.dev/)
 [![D1](https://img.shields.io/badge/D1-SQLite-003B57?logo=sqlite&logoColor=white)](https://developers.cloudflare.com/d1/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/76hvc/cf-outlook-email/pulls)
+[![CI](https://github.com/76hvc/cf-outlook-email/actions/workflows/ci.yml/badge.svg)](https://github.com/76hvc/cf-outlook-email/actions/workflows/ci.yml)
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/76hvc/cf-outlook-email)
 
@@ -126,8 +127,11 @@ runs `wrangler secret bulk` after deploying when it finds them in the environmen
 | `ADMIN_PASSWORD` | your login password |
 | `COOKIE_SECRET` | long random string |
 
-The workflow is **manual-trigger** by default (Actions → Deploy to Cloudflare → Run workflow). Uncomment the
-`push:` lines in the file for automatic deploys — but don't enable it *and* Workers Builds for the same repo.
+The deploy workflow is **manual-trigger** (Actions → Deploy to Cloudflare → Run workflow).
+Leave day-to-day deploys to Workers Builds — running both would deploy the same Worker twice.
+
+> A separate `.github/workflows/ci.yml` runs **type check, unit tests and the i18n coverage check** on every
+> push / PR. It never deploys, and it fails if `src/schema.ts` was not regenerated after editing `migrations/*.sql`.
 
 </details>
 

@@ -122,8 +122,11 @@ Workers Builds 跑在 Cloudflare 的构建环境，只能读 **Worker → Settin
 | `ADMIN_PASSWORD` | 登录密码 |
 | `COOKIE_SECRET` | 随机长字符串 |
 
-工作流默认**手动触发**（Actions → Deploy to Cloudflare → Run workflow）；想 push 自动部署就取消 `push:` 那两行注释。
-⚠️ **别和 Workers Builds 同时开**，会重复部署。
+工作流是**手动触发**的（Actions → Deploy to Cloudflare → Run workflow）。
+日常自动部署建议交给 Workers Builds，⚠️ **别和 Workers Builds 同时开**，会重复部署。
+
+> 仓库里还有一个 [`ci.yml`](../.github/workflows/ci.yml)：每次 push / PR 自动跑类型检查、单元测试和 i18n 覆盖率，
+> 只检查不部署。改了 `migrations/*.sql` 却没重新生成 `src/schema.ts` 的话，它也会报错拦下。
 
 
 > **⚠️ 复用旧数据库时，密码可能不认 `ADMIN_PASSWORD`。**

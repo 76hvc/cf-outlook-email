@@ -1,0 +1,52 @@
+name: CI
+
+# 每次 push / PR 都跑：类型检查、单元测试、i18n 覆盖率。
+# 只做检查，不部署——部署走 Workers Builds（或手动触发 deploy.yml）。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # build 会先跑 tools/build-schema.mjs 再 tsc --noEmit
+      - name: Type check + regenerate schema
+        run: pnpm run build
+
+      # 改了 migrations/*.sql 却忘了提交重新生成的 src/schema.ts
+      - name: Verify generated schema is committed
+        run: |
+          if ! git diff --quiet -- src/schema.ts; then
+            echo "::error::src/schema.ts 与 migrations/ 不一致。本地跑 'pnpm run build' 后提交结果。"
+            git diff --stat -- src/schema.ts
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: i18n coverage
+        run: node tools/i18n-check.mjs

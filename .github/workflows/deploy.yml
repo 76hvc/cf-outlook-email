@@ -1,11 +1,11 @@
 name: Deploy to Cloudflare
 
-# 手动触发。想改代码自动部署就把下面的 push 取消注释——但请注意：
-# 如果你已经在 Cloudflare 里用 Workers Builds 连了仓库，别两边都开（会重复部署）。
+# 手动触发：Actions 页面 → Deploy to Cloudflare → Run workflow。
+#
+# 为什么不挂 push：日常自动部署交给 Cloudflare Workers Builds（连 GitHub 仓库那套），
+# 两边同时开会对同一个 Worker 重复部署。每次 push 的类型检查和测试由 ci.yml 负责。
 on:
   workflow_dispatch:
-  # push:
-  #   branches: [main]
 
 concurrency:
   group: deploy-${{ github.ref }}
