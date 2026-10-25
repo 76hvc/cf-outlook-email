@@ -90,8 +90,16 @@ Something like `https://outlook-email.<your-subdomain>.workers.dev` — log in w
 <details>
 <summary><b>These two secrets only need to be set once (no re-entering on every deploy)</b></summary>
 
-**Worker secrets are persistent**: redeploying (including automatic Workers Builds deploys) does **not** clear them.
-They are only lost if the Worker is deleted and recreated, or you switch to a different Worker name.
+**Know which of the two you are creating** — this is the root cause of "my variables vanished after a redeploy":
+
+| Dashboard type | After a redeploy |
+|---|---|
+| **Secret** (encrypted) | ✅ always kept (wrangler hard-codes `keepSecrets: true`) |
+| **Text / Variable** (plain) | ⚠️ **deleted by default** unless declared in `wrangler.toml` |
+
+The **Add** dialog defaults to **Text**, so it is easy to add two plain variables and have every
+`wrangler deploy` wipe them. This repo sets `keep_vars = true`, so plain variables now survive too —
+but use the **Secret** type for credentials, or the value stays visible in the dashboard.
 
 One thing to be clear about if you want to keep them in GitHub:
 

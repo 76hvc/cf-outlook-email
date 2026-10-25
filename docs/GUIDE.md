@@ -87,8 +87,13 @@
 
 > 漏了这两条也能打开登录页，但点登录会提示「服务端密钥未配置」。Secret 保存后**立即生效**，不用重新部署。
 >
-> **只设一次就行**：Worker 的 Secret 是持久化的，之后重新部署（包括 Workers Builds 自动部署）**不会清空**。
-> 只有删掉 Worker 重建、或换成另一个 Worker 名字时才需要再设。
+> **⚠️ 类型一定要选「Secret」，别选「Text」。**
+> Cloudflare 的 Add 弹窗**默认是 Text 类型**，而类型为 Text 的明文变量在每次 `wrangler deploy` 时
+> 都会被**删除**（因为 `wrangler.toml` 里没声明它）。这就是「变量部署完就没了」的真正原因。
+> 类型为 Secret 的则不受影响——wrangler 内部写死 `keepSecrets: true`，永远不会删。
+>
+> 本仓库的 `wrangler.toml` 已加 `keep_vars = true`，明文变量也不会再被清掉；
+> 但密钥仍建议用 Secret 类型，避免明文显示在控制台上。
 
 #### 想把 Secret 存在 GitHub 里？（A4 补充）
 
@@ -553,6 +558,30 @@ curl -X POST https://login.microsoftonline.com/common/oauth2/v2.0/token \
 ### 构建成功但打开页面报「数据库未就绪」
 
 `database_id` 还是占位符，或 D1 绑定指向不存在的库。用 `pnpm run deploy:cf` 部署会自动处理；手动部署的话按[第四步](#第四步创建数据库)把 ID 填进 `wrangler.toml`。
+
+### 部署后变量/密钥没了
+
+典型症状：在控制台加好了 `ADMIN_PASSWORD`、`COOKIE_SECRET`，登录正常；重新部署一次后，
+登录又提示「服务端密钥未配置」，回控制台一看——变量不见了。
+
+**原因**：那两个东西是**类型选错了**。
+
+| 类型 | `wrangler deploy` 之后 |
+|---|---|
+| **Secret** | ✅ 保留（wrangler 内部 `keepSecrets: true`，写死） |
+| **Text / Variable** | ❌ **被删除**，除非 `wrangler.toml` 里声明了同名 `[vars]`，或设了 `keep_vars = true` |
+
+Cloudflare 的 **Add** 弹窗默认就是 **Text**，手一快就中招。
+
+**修法（任选）**：
+
+1. 重新添加时**把类型下拉框切到 Secret**（推荐，值不再明文显示）
+2. 本仓库 `wrangler.toml` 已含 `keep_vars = true`，明文变量也会保留——但明文密码会一直显示在页面上
+3. 一劳永逸：让 `deploy:cf` 每次部署后自动写入。设置环境变量 `ADMIN_PASSWORD`、`COOKIE_SECRET`
+   后重跑 `pnpm run deploy:cf`（GitHub Actions 方式见 [A4 补充](#想把-secret-存在-github-里a4-补充)）
+
+`deploy:cf` 部署完会执行 `wrangler secret list` 并打印 Worker 上实际有哪些 Secret，
+再缺就直接提示缺哪个——不用再靠猜。
 
 ### `invalid_grant` / `grant is expired`
 

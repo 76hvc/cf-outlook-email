@@ -93,10 +93,20 @@ Worker 页面 → **Settings** → **Variables and Secrets** → **Add** → 类
 <details>
 <summary><b>这俩 Secret 只设一次就够了（不用每次部署重填）</b></summary>
 
-**Worker 的 Secret 是持久化的**：重新部署（包括 Workers Builds 的自动部署）**不会清空**已存在的 Secret。
-只有「Worker 被删除后重建」或「换了新的 Worker 名字」时才需要重新设。
+**先分清两种东西**，这是「变量部署完就没了」的根源：
 
-如果你就是想把它们存在 GitHub 里，先说清一件事：
+| 控制台里的类型 | 重新部署后会怎样 |
+|---|---|
+| **Secret**（加密） | ✅ **一定会保留**（wrangler 内部写死 `keepSecrets: true`） |
+| **Text / Variable**（明文） | ⚠️ **默认会被删掉**——只要 `wrangler.toml` 里没声明它 |
+
+而 Cloudflare 的 **Add** 弹窗**默认就是 Text 类型**，很容易顺手加了两个明文变量，然后每次
+`wrangler deploy` 就被清掉，看起来就像「变量莫名其妙没了」。
+
+本仓库的 `wrangler.toml` 已经加了 `keep_vars = true`，所以现在**明文变量也不会再被删**。
+但还是建议把 `ADMIN_PASSWORD` / `COOKIE_SECRET` 建成 **Secret** 类型——明文会出现在控制台页面上。
+
+如果你想把它们存在 GitHub 里，先说清一件事：
 
 > **GitHub Secrets 不会被 Cloudflare Workers Builds 读到。**
 > Workers Builds 跑在 Cloudflare 的构建环境里，只能拿到你在 **Worker → Settings → Build → Variables and Secrets**

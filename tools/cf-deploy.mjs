@@ -180,6 +180,38 @@ function syncSecrets() {
   log(`已写入 ${present.length} 个 Secret（值不回显）`);
 }
 
+// Admins have been bitten by "my variables disappeared after a redeploy" — a
+// dashboard Variable added as Type=Text is pruned by `wrangler deploy` unless
+// the config declares it or keep_vars is set. Secret-type values are always
+// inherited. Report what the Worker actually has so the state is never a guess.
+const REQUIRED_SECRETS = ['ADMIN_PASSWORD', 'COOKIE_SECRET'];
+
+function verifySecrets() {
+  let names;
+  try {
+    const out = runWrangler(['secret', 'list'], { capture: true });
+    const parsed = parseJsonArray(out);
+    if (!Array.isArray(parsed)) return;
+    names = parsed.map((s) => (s && (s.name || s.key)) || '').filter(Boolean);
+  } catch {
+    // Listing needs the same permission as deploying; if it fails, stay quiet.
+    return;
+  }
+
+  const missing = REQUIRED_SECRETS.filter((n) => !names.includes(n));
+  if (!missing.length) {
+    log(`Worker 上的 Secret：${names.join(', ')}`);
+    return;
+  }
+
+  log(`⚠️  Worker 上缺少：${missing.join(', ')}`);
+  log('   登录会提示「服务端密钥未配置」。两种补法：');
+  log('   1) 控制台 Worker → Settings → Variables and Secrets → Add，类型必须选 Secret（不是 Text）');
+  log('   2) 在环境里提供 ADMIN_PASSWORD / COOKIE_SECRET 后重跑本脚本，会自动写入');
+  log('   注意：类型选成 Text 的变量不是 Secret，虽然本仓库已设 keep_vars = true 不会再被删，');
+  log('        但仍建议改用 Secret 类型，避免明文出现在控制台和构建日志里。');
+}
+
 // ---- main ----
 
 let config = readConfig();
@@ -223,6 +255,7 @@ runWrangler(['deploy']);
 // Secrets are applied after the script exists (a brand-new Worker has no
 // secret store to write into). Existing secrets survive redeploys untouched.
 syncSecrets();
+verifySecrets();
 
 log('完成。打开 Worker 的网址即可登录。');
 if (!(process.env.ADMIN_PASSWORD || '').trim()) {

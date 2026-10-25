@@ -15,6 +15,14 @@ name = "outlook-email"
 main = "src/index.ts"
 compatibility_date = "2026-06-01"
 
+# Keep dashboard-managed Variables across deploys.
+#
+# Without this, `wrangler deploy` DELETES every plain-text Variable that is not
+# declared in this file — which is exactly the "我的变量部署完就没了" symptom.
+# (Wrangler hard-codes keepSecrets = true, so Secret-type values were never the
+# problem; the Type dropdown in the dashboard defaults to Text, not Secret.)
+keep_vars = true
+
 # Static SPA (public/) is served by the same Worker.
 [assets]
 directory = "./public"
