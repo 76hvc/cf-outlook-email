@@ -86,6 +86,40 @@
 | Secret | `COOKIE_SECRET` | 一串随机字符，至少 32 位，例如 `aK3mX9pQ2wE8rT6yU1iO4sD7fG0hJ5l` |
 
 > 漏了这两条也能打开登录页，但点登录会提示「服务端密钥未配置」。Secret 保存后**立即生效**，不用重新部署。
+>
+> **只设一次就行**：Worker 的 Secret 是持久化的，之后重新部署（包括 Workers Builds 自动部署）**不会清空**。
+> 只有删掉 Worker 重建、或换成另一个 Worker 名字时才需要再设。
+
+#### 想把 Secret 存在 GitHub 里？（A4 补充）
+
+先说结论：**GitHub Secrets 传不到 Cloudflare Workers Builds。**
+Workers Builds 跑在 Cloudflare 的构建环境，只能读 **Worker → Settings → Build → Variables and Secrets** 里的构建变量，
+访问不了你仓库的 Actions Secrets。
+
+所以「每次部署都不用重填」有三种做到的方式：
+
+| 方式 | 一次配置在哪里 | 之后每次部署 |
+|------|----------------|--------------|
+| **A. 控制台设一次**（最简单） | Worker → Settings → Variables and Secrets | 自动保留，无需重填 |
+| **B. 构建变量** | Worker → Settings → **Build** → Variables and Secrets | `deploy:cf` 自动 `wrangler secret bulk` 写回 |
+| **C. GitHub Actions** | GitHub 仓库 → Settings → Secrets and variables → Actions | 工作流用 GitHub Secrets 部署 |
+
+**方式 B**：在 Build 的那一栏加 `ADMIN_PASSWORD`、`COOKIE_SECRET`（类型 Secret）。
+`deploy:cf` 发现环境里有这两个变量，会在部署完成后自动写入 Worker Secret（值不会打印到日志）。
+
+**方式 C**：用仓库里的 [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)，它执行 `pnpm run deploy:cf`。
+需要 4 条 GitHub Secrets：
+
+| 名称 | 内容 |
+|------|------|
+| `CLOUDFLARE_API_TOKEN` | 控制台 → My Profile → API Tokens → Create Token，权限：**Workers Scripts:Edit** + **D1:Edit** + **Account Settings:Read** |
+| `CLOUDFLARE_ACCOUNT_ID` | 控制台右侧的 Account ID |
+| `ADMIN_PASSWORD` | 登录密码 |
+| `COOKIE_SECRET` | 随机长字符串 |
+
+工作流默认**手动触发**（Actions → Deploy to Cloudflare → Run workflow）；想 push 自动部署就取消 `push:` 那两行注释。
+⚠️ **别和 Workers Builds 同时开**，会重复部署。
+
 
 > **⚠️ 复用旧数据库时，密码可能不认 `ADMIN_PASSWORD`。**
 > 登录校验的顺序是：先查 `settings` 表里的 `login_password_hash`，有就用它比对，**根本不会看 `ADMIN_PASSWORD`**。

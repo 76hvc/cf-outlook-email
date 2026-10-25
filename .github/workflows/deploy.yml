@@ -1,0 +1,49 @@
+name: Deploy to Cloudflare
+
+# 手动触发。想改代码自动部署就把下面的 push 取消注释——但请注意：
+# 如果你已经在 Cloudflare 里用 Workers Builds 连了仓库，别两边都开（会重复部署）。
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check + regenerate schema
+        run: pnpm run build
+
+      - name: Unit tests
+        run: pnpm test
+
+      # deploy:cf 会自动建 D1、写 database_id、应用迁移、部署 Worker，
+      # 并把下面提供的两个 Secret 写完（值不会被打印）。
+      - name: Deploy
+        run: pnpm run deploy:cf
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          COOKIE_SECRET: ${{ secrets.COOKIE_SECRET }}

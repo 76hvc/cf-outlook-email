@@ -88,6 +88,43 @@ Worker page → **Settings** → **Variables and Secrets** → **Add** → type 
 Something like `https://outlook-email.<your-subdomain>.workers.dev` — log in with `ADMIN_PASSWORD`. Tables are created automatically on the first request.
 
 <details>
+<summary><b>These two secrets only need to be set once (no re-entering on every deploy)</b></summary>
+
+**Worker secrets are persistent**: redeploying (including automatic Workers Builds deploys) does **not** clear them.
+They are only lost if the Worker is deleted and recreated, or you switch to a different Worker name.
+
+One thing to be clear about if you want to keep them in GitHub:
+
+> **GitHub Secrets are not readable by Cloudflare Workers Builds.** Workers Builds runs in Cloudflare's own build
+> environment and only sees the build variables configured under **Worker → Settings → Build → Variables and Secrets**.
+
+Three options:
+
+| Option | Setup | Re-enter each deploy? |
+|--------|-------|:---:|
+| **A. Set once in the dashboard** (default) | nothing | ❌ |
+| **B. Build variables + `deploy:cf`** | two variables in the Worker's Build settings | ❌ (the script pushes them) |
+| **C. Deploy via GitHub Actions** | 4 GitHub Secrets | ❌ |
+
+**B**: add `ADMIN_PASSWORD` and `COOKIE_SECRET` under **Settings → Build → Variables and Secrets**; `deploy:cf`
+runs `wrangler secret bulk` after deploying when it finds them in the environment.
+
+**C**: use the bundled `.github/workflows/deploy.yml`. It runs `pnpm run deploy:cf` with secrets injected from GitHub:
+
+| GitHub Secret | Value |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | My Profile → API Tokens → Create Token, with **Workers Scripts:Edit** + **D1:Edit** + **Account Settings:Read** |
+| `CLOUDFLARE_ACCOUNT_ID` | the Account ID shown in the dashboard |
+| `ADMIN_PASSWORD` | your login password |
+| `COOKIE_SECRET` | long random string |
+
+The workflow is **manual-trigger** by default (Actions → Deploy to Cloudflare → Run workflow). Uncomment the
+`push:` lines in the file for automatic deploys — but don't enable it *and* Workers Builds for the same repo.
+
+</details>
+
+
+<details>
 <summary><b>Fallback: manual database setup</b></summary>
 
 1. Dashboard → **Storage & Databases** → **D1 SQL Database** → **Create**, name it `outlook-email-db`

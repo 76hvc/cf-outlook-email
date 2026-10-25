@@ -91,6 +91,46 @@ Worker 页面 → **Settings** → **Variables and Secrets** → **Add** → 类
 以后往 fork 里提交代码，Cloudflare 会自动重新构建部署。
 
 <details>
+<summary><b>这俩 Secret 只设一次就够了（不用每次部署重填）</b></summary>
+
+**Worker 的 Secret 是持久化的**：重新部署（包括 Workers Builds 的自动部署）**不会清空**已存在的 Secret。
+只有「Worker 被删除后重建」或「换了新的 Worker 名字」时才需要重新设。
+
+如果你就是想把它们存在 GitHub 里，先说清一件事：
+
+> **GitHub Secrets 不会被 Cloudflare Workers Builds 读到。**
+> Workers Builds 跑在 Cloudflare 的构建环境里，只能拿到你在 **Worker → Settings → Build → Variables and Secrets**
+> 里配的构建变量，无法访问你 GitHub 仓库的 Actions Secrets。
+
+所以三种做法，按省事程度排：
+
+| 做法 | 需要准备 | 每次部署要重填吗 | 适合谁 |
+|------|----------|:---:|------|
+| **A. 控制台设一次**（默认，推荐） | 无 | ❌ 不用 | 大多数人 |
+| **B. 构建变量 + `deploy:cf`** | 在 Worker 的 Build settings 里加两个变量 | ❌ 不用（脚本每次自动写回） | 想「配置即代码」 |
+| **C. GitHub Actions 部署** | GitHub Secrets 4 条 | ❌ 不用 | 想用 GitHub Secrets 管密钥 |
+
+**B 怎么做**：Worker → **Settings** → **Build** → **Variables and Secrets**，加 `ADMIN_PASSWORD`、`COOKIE_SECRET`
+（类型选 Secret）。`deploy:cf` 检测到这两个环境变量存在，会在部署完成后自动 `wrangler secret bulk` 写入。
+
+**C 怎么做**：用仓库自带的 `.github/workflows/deploy.yml`。它跑 `pnpm run deploy:cf`，密钥从 GitHub Secrets 注入。
+需要在这 4 条：
+
+| GitHub Secret | 内容 |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | 控制台 → My Profile → API Tokens → Create Token，权限给 **Workers Scripts:Edit** + **D1:Edit** + **Account Settings:Read** |
+| `CLOUDFLARE_ACCOUNT_ID` | 控制台右侧显示的 Account ID |
+| `ADMIN_PASSWORD` | 你的登录密码 |
+| `COOKIE_SECRET` | 随机长字符串 |
+
+工作流默认**手动触发**（Actions 页 → Deploy to Cloudflare → Run workflow）。
+想改成 push 自动部署，把文件里 `push:` 那两行取消注释——
+**但如果你已经用 Workers Builds 连了仓库，别两边都开**，会重复部署。
+
+</details>
+
+
+<details>
 <summary><b>备用：手动创建数据库（构建环境无建库权限时）</b></summary>
 
 1. 控制台 → **Storage & Databases** → **D1 SQL Database** → **Create**，名字填 `outlook-email-db`
