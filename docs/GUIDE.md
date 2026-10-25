@@ -36,7 +36,7 @@
 
 ### A1. Fork 仓库
 
-打开 <https://github.com/roseforyou/cf-outlook-email>，点右上角 **Fork**，把仓库复制到你的账号下。
+打开 <https://github.com/76hvc/cf-outlook-email>，点右上角 **Fork**，把仓库复制到你的账号下。
 
 > 为什么不直接用原仓库？因为 Cloudflare 需要「授权你拥有的仓库」，而且构建时可能会写入配置（`deploy:cf` 会回填 `database_id`）。
 
@@ -149,7 +149,7 @@ pnpm --version    # 应该显示版本号
 ## 第二步：获取代码
 
 ```bash
-git clone https://github.com/roseforyou/cf-outlook-email.git
+git clone https://github.com/76hvc/cf-outlook-email.git
 cd cf-outlook-email
 pnpm install
 ```

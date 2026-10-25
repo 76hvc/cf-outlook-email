@@ -745,7 +745,7 @@ function searchAccounts(keyword) {
 var THUNDERBIRD_CLIENT_ID = '9e5f94bc-e8a4-4e73-b8be-63364c29d753';
 
 function showAddAccountModal() {
-  const guideLink = `<a href="https://github.com/roseforyou/cf-outlook-email/blob/main/docs/GUIDE.md#自己注册-azure-应用" target="_blank">${t('部署教程')}</a>`;
+  const guideLink = `<a href="https://github.com/76hvc/cf-outlook-email/blob/main/docs/GUIDE.md#自己注册-azure-应用" target="_blank">${t('部署教程')}</a>`;
   showModal(t('添加账号'), `
     <div style="background:var(--primary-bg);border:1px solid var(--border-focus);border-radius:10px;padding:14px;margin-bottom:16px">
       <div style="font-size:13px;color:var(--primary);margin-bottom:8px;font-weight:550">${t('快捷方式：一键授权 Outlook 邮箱')}</div>
@@ -1611,7 +1611,7 @@ async function renderSettings(el) {
     <div class="card">
       <h3 style="margin-bottom:8px">${t('对外 API')}</h3>
       <div style="font-size:12.5px;color:var(--text-dim);line-height:1.7;margin-bottom:16px">
-        ${t('用 API Key 免登录拉取邮件（适合脚本自动取验证码）。详见 {link}。', { link: `<a href="https://github.com/roseforyou/cf-outlook-email/blob/main/docs/API.md" target="_blank">${t('API 文档')}</a>` })}
+        ${t('用 API Key 免登录拉取邮件（适合脚本自动取验证码）。详见 {link}。', { link: `<a href="https://github.com/76hvc/cf-outlook-email/blob/main/docs/API.md" target="_blank">${t('API 文档')}</a>` })}
       </div>
       <div class="form-group">
         <label class="form-label">API Key</label>

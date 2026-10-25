@@ -11,9 +11,9 @@
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
 [![Hono](https://img.shields.io/badge/Hono-4-E36002?logo=hono&logoColor=white)](https://hono.dev/)
 [![D1](https://img.shields.io/badge/D1-SQLite-003B57?logo=sqlite&logoColor=white)](https://developers.cloudflare.com/d1/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/roseforyou/cf-outlook-email/pulls)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/76hvc/cf-outlook-email/pulls)
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/roseforyou/cf-outlook-email)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/76hvc/cf-outlook-email)
 
 ☝️ 按钮会克隆仓库并直接构建。本仓库已自带 `wrangler.toml`，但 `database_id` 是占位符——
 **按下面的「方式一 / 方式二」操作才能部署成功**，按钮只是快捷入口。
@@ -48,7 +48,7 @@
 
 **1. Fork 仓库**
 
-打开 <https://github.com/roseforyou/cf-outlook-email> → 右上角 **Fork**。
+打开 <https://github.com/76hvc/cf-outlook-email> → 右上角 **Fork**。
 
 **2. 在 Cloudflare 连接仓库**
 
@@ -104,7 +104,7 @@ Worker 页面 → **Settings** → **Variables and Secrets** → **Add** → 类
 
 ```bash
 # 1. 克隆 & 安装
-git clone https://github.com/roseforyou/cf-outlook-email.git
+git clone https://github.com/76hvc/cf-outlook-email.git
 cd cf-outlook-email
 pnpm install
 
@@ -229,10 +229,6 @@ wrangler.toml            部署配置（wrangler 与 Workers Builds 共用）
 ## 🙏 致谢
 
 本项目基于 [xiaozhi349/outlookEmail](https://github.com/xiaozhi349/outlookEmail) 改造而来。原项目为 Python Flask + SQLite 实现，本项目将其迁移至 Cloudflare Workers + D1，并重写了前后端代码。感谢原作者的工作。
-
-## 友情链接
-
-[LINUX DO](https://linux.do/) —— 新的理想型社区，技术爱好者的聚集地。
 
 ## 📜 许可证
 

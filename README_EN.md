@@ -11,9 +11,9 @@
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
 [![Hono](https://img.shields.io/badge/Hono-4-E36002?logo=hono&logoColor=white)](https://hono.dev/)
 [![D1](https://img.shields.io/badge/D1-SQLite-003B57?logo=sqlite&logoColor=white)](https://developers.cloudflare.com/d1/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/roseforyou/cf-outlook-email/pulls)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/76hvc/cf-outlook-email/pulls)
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/roseforyou/cf-outlook-email)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/76hvc/cf-outlook-email)
 
 ☝️ The button clones the repo and builds it. This repo ships its own `wrangler.toml`, but `database_id`
 is still a placeholder — follow **Option 1 / Option 2** below to get a working deployment.
@@ -48,7 +48,7 @@ is still a placeholder — follow **Option 1 / Option 2** below to get a working
 
 **1. Fork the repo**
 
-Open <https://github.com/roseforyou/cf-outlook-email> → **Fork** (top right).
+Open <https://github.com/76hvc/cf-outlook-email> → **Fork** (top right).
 
 **2. Connect the repo in Cloudflare**
 
@@ -101,7 +101,7 @@ Something like `https://outlook-email.<your-subdomain>.workers.dev` — log in w
 
 ```bash
 # 1. Clone & install
-git clone https://github.com/roseforyou/cf-outlook-email.git
+git clone https://github.com/76hvc/cf-outlook-email.git
 cd cf-outlook-email
 pnpm install
 
