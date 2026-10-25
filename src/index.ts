@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from './types';
 import { authMiddleware } from './auth';
 import { fail } from './response';
+import { ensureSchema } from './migrate';
 import { runTokenRefresh, runEmailPush } from './cron';
 import authRoutes from './routes/auth';
 import groupRoutes from './routes/groups';
@@ -46,6 +47,14 @@ app.onError((err, c) => {
   return fail('INTERNAL_ERROR', '服务器内部错误，请检查部署配置（数据库迁移 / Secrets）', 500);
 });
 
+// Schema bootstrap: must be registered before every route so a fresh D1 gets
+// its tables created on the first request (see src/migrate.ts). Cheap after the
+// first call — the result is memoised per isolate.
+app.use('/api/*', async (c, next) => {
+  await ensureSchema(c.env.DB);
+  await next();
+});
+
 // Auth routes (no middleware)
 app.route('/api/auth', authRoutes);
 
@@ -69,7 +78,14 @@ export default {
   // Cron Trigger entry: refresh a batch of account tokens (gated by settings)
   scheduled: (_event: ScheduledController, env: Env, ctx: ExecutionContext) => {
     // Two independent gated jobs share the wake-up: token keep-alive + new-email push.
-    ctx.waitUntil(runTokenRefresh(env));
-    ctx.waitUntil(runEmailPush(env));
+    // Schema bootstrap first: a cron firing before the first HTTP request would
+    // otherwise hit missing tables. The catch keeps a failing job from surfacing
+    // as an unhandled rejection in the cron logs.
+    ctx.waitUntil(
+      ensureSchema(env.DB)
+        .then(() => Promise.all([runTokenRefresh(env), runEmailPush(env)]))
+        .then(() => undefined)
+        .catch((e) => console.error('Scheduled job failed:', e instanceof Error ? e.message : String(e)))
+    );
   },
 };

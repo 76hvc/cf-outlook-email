@@ -6,7 +6,7 @@
 
 🆓 100% Free · ☁️ No Server Required · 🌍 Global CDN · 🌗 Dark/Light Theme · 🌐 Bilingual UI
 
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL%203.0-blue.svg)](./LICENSE)
+[![License: GPL-3.0](https://img.shields.io/badge/License/GPL%203.0-blue.svg)](./LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8+-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
 [![Hono](https://img.shields.io/badge/Hono-4-E36002?logo=hono&logoColor=white)](https://hono.dev/)
@@ -15,7 +15,8 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/roseforyou/cf-outlook-email)
 
-⚠️ This button **cannot one-click deploy** this project: it relies on a D1 database and Secrets, which require manually creating the DB, running migrations, and setting secrets — the button fails at framework detection. Please follow the 📖 [Deployment Guide](./docs/GUIDE.md) instead (~5 min).
+☝️ The button clones the repo and builds it. This repo ships its own `wrangler.toml`, but `database_id`
+is still a placeholder — follow **Option 1 / Option 2** below to get a working deployment.
 
 🌐 [中文](./README.md) · 📖 [Deployment Guide](./docs/GUIDE.md) · 🔌 [API Docs](./docs/API.md)
 
@@ -37,10 +38,58 @@
 - 🎨 **Polished Themes** — Dark / Light / Auto with glassmorphism, circle-swoop transition & ambient breathing glow
 - 🌐 **Bilingual UI** — Chinese by default, one-click switch to English in the topbar, preference remembered locally, backend messages translated on display
 - 🆓 **Completely Free** — Runs on Cloudflare's free tier, no credit card needed
+- ⚡ **Deploy from Git** — `wrangler.toml` ships with the repo, so "Connect to Git" builds and deploys automatically; the database schema is created on the first request, no manual migration step
 
-## 🚀 Quick Deploy
+## 🚀 Deploy
 
-> 💡 See the [Deployment Guide](./docs/GUIDE.md) for full steps.
+### Option 1: Connect the GitHub repo (recommended — every push redeploys)
+
+> No local tooling needed; everything happens in the browser.
+
+**1. Fork the repo**
+
+Open <https://github.com/roseforyou/cf-outlook-email> → **Fork** (top right).
+
+**2. Connect the repo in Cloudflare**
+
+Dashboard → **Workers & Pages** → **Create application** → **Workers** → **Connect to Git** → authorize GitHub → pick your fork.
+
+**3. Build settings**
+
+| Field | Value |
+|-------|-------|
+| Build command | `pnpm run build` |
+| Deploy command | `pnpm run deploy:cf` |
+
+`deploy:cf` will **create the D1 database**, write its `database_id` into `wrangler.toml`, apply the schema, and deploy the Worker.
+(If the build environment lacks permission to create databases it fails with a clear message — use "Manual database setup" below instead.)
+
+**4. Add two Secrets**
+
+Worker page → **Settings** → **Variables and Secrets** → **Add** → type **Secret**:
+
+| Name | Value |
+|------|-------|
+| `ADMIN_PASSWORD` | the password you want to log in with |
+| `COOKIE_SECRET` | any long random string (32+ characters) |
+
+> Without these the login page still loads, but logging in reports "server secret not configured".
+
+**5. Open the URL and log in**
+
+Something like `https://outlook-email.<your-subdomain>.workers.dev` — log in with `ADMIN_PASSWORD`. Tables are created automatically on the first request.
+
+<details>
+<summary><b>Fallback: manual database setup</b></summary>
+
+1. Dashboard → **Storage & Databases** → **D1 SQL Database** → **Create**, name it `outlook-email-db`
+2. Open it and copy the **Database ID**
+3. In your fork, open `wrangler.toml` and replace `REPLACE_WITH_YOUR_DATABASE_ID` with that ID, commit
+4. In the Worker's Build settings, change the Deploy command to `npx wrangler deploy`, redeploy
+
+</details>
+
+### Option 2: Deploy from the CLI (also used for local dev)
 
 ```bash
 # 1. Clone & install
@@ -51,27 +100,43 @@ pnpm install
 # 2. Login to Cloudflare
 pnpm exec wrangler login
 
-# 3. Create D1 database (copy database_id to wrangler.toml)
-pnpm exec wrangler d1 create outlook-email-db
-cp wrangler.toml.example wrangler.toml
-# Edit wrangler.toml, replace REPLACE_WITH_YOUR_DATABASE_ID
+# 3. Create DB + migrate + deploy in one step
+pnpm run deploy:cf
 
 # 4. Set secrets
 pnpm exec wrangler secret put ADMIN_PASSWORD
 pnpm exec wrangler secret put COOKIE_SECRET
+```
 
-# 5. Initialize & deploy
-pnpm exec wrangler d1 migrations apply outlook-email-db --remote
+Prefer doing it by hand:
+
+```bash
+pnpm exec wrangler d1 create outlook-email-db   # copy database_id into wrangler.toml
 pnpm exec wrangler deploy
 ```
 
-Visit the output URL and login with your password. 🎉
+### About the schema
+
+- **Auto-created on first request**: `src/migrate.ts` runs `migrations/*.sql` when the tables are missing (all statements are `CREATE TABLE IF NOT EXISTS`, so re-running is safe). A brand-new database needs no manual migration.
+- Explicit migration is still available: `pnpm run db:migrate` (remote) / `pnpm run db:migrate:local` (local).
+- To add a migration, only touch `migrations/` — `pnpm run build` folds it into `src/schema.ts` (generated, do not edit).
+
+### Local development
+
+```bash
+pnpm install
+echo 'ADMIN_PASSWORD=your-password' > .dev.vars
+echo 'COOKIE_SECRET=any-long-random-string' >> .dev.vars
+pnpm run dev      # http://localhost:8787
+```
+
+`wrangler.toml` is committed, so there is no template to copy; the placeholder `database_id` is fine locally (dev uses SQLite under `.wrangler/`).
 
 ## 📮 Adding Accounts
 
 Login → **Add Account** → **One-Click Auth** → Microsoft login popup → Authorize → Credentials auto-filled → Save.
 
-Works with all Outlook / Hotmail / Live accounts. Bulk import supported (format: `email----password----client_id----refresh_token`).
+Works with all Outlook / Hotmail / Live accounts. Bulk import supported (format: `email----password----client_id----refresh_token`), also available through the [External API](./docs/API.md).
 
 ## 🧱 Tech Stack
 
@@ -82,7 +147,26 @@ Works with all Outlook / Hotmail / Live accounts. Bulk import supported (format:
 | 🗄️ Database | Cloudflare D1 (SQLite) |
 | 🎨 Frontend | Vanilla HTML/CSS/JS |
 | 📧 Email | Microsoft Graph API |
-| 🚀 Deploy | Wrangler |
+| 🚀 Deploy | Wrangler / Cloudflare Workers Builds |
+
+## 🗂️ Project Layout
+
+```
+src/                     Worker source
+├── index.ts             entry + routes + schema bootstrap hook
+├── migrate.ts           creates the schema on first request
+├── schema.ts            generated from migrations/*.sql — do not edit
+├── auth.ts              HMAC-SHA256 cookie sessions
+├── graph.ts             Microsoft Graph integration
+├── importAccounts.ts    account import (dedupe + bulk insert)
+├── routes/              9 business route modules
+└── utils/               crypto, validation, import parsing
+public/                  frontend (static SPA)
+migrations/              D1 DDL — the single source of truth
+tools/                   build / deploy / i18n-check scripts
+test/                    Vitest unit tests
+wrangler.toml            deploy config (used by wrangler and Workers Builds)
+```
 
 ## 💰 Free Tier Limits
 
@@ -92,6 +176,8 @@ Works with all Outlook / Hotmail / Live accounts. Bulk import supported (format:
 | ⏱️ CPU Time | 10ms/req | ✅ |
 | 🌐 Subrequests | 50/req | ✅ (single account per request) |
 | 💾 D1 Storage | 5 GB | ✅ |
+
+> D1's free plan allows roughly 50 queries per invocation, which is why the external bulk-import endpoint caps at 300 accounts per request.
 
 ## 🗺️ Roadmap
 
@@ -108,7 +194,7 @@ Works with all Outlook / Hotmail / Live accounts. Bulk import supported (format:
 - [x] 📄 Paginated load-more
 - [x] 📭 Temp email (GPTMail integration)
 - [x] 🎨 Theme switching + circle-swoop transition + breathing glow
-- [x] 🔑 External API + API Key (login-free email fetch for automation, see [API Docs](./docs/API.md))
+- [x] 🔑 External API + API Key (login-free email fetch, **bulk account import**, account inventory, for automation — see [API Docs](./docs/API.md))
 - [x] 🗑️ Delete emails (single / batch, soft-delete to Deleted Items)
 - [x] 📎 Attachment download
 - [x] 🏷️ Tag system (multiple tags per account, cross-group filtering)
@@ -116,6 +202,7 @@ Works with all Outlook / Hotmail / Live accounts. Bulk import supported (format:
 - [x] 🤖 Telegram push for new emails (cron polling, near-real-time delivery, configurable interval)
 - [x] 🧭 UI polish (per-page toolbars, dashboard health cards, responsive settings grid, paginated accounts table, searchable account combobox)
 - [x] 🌐 UI internationalization (Chinese default, one-click English)
+- [x] 🚀 Deploy straight from Git (`wrangler.toml` committed + schema created on first request)
 
 **Planned (PRs welcome)**
 
@@ -133,6 +220,6 @@ This project is a rewrite of [xiaozhi349/outlookEmail](https://github.com/xiaozh
 
 ## 📜 License
 
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL%203.0-blue.svg)](./LICENSE)
+[![License: GPL-3.0](https://img.shields.io/badge/License/GPL%203.0-blue.svg)](./LICENSE)
 
 Licensed under **GPL-3.0**. Free to use, modify, and distribute — but any distributed derivative must also be open-sourced under GPL-3.0 with full source code.

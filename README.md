@@ -15,7 +15,8 @@
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/roseforyou/cf-outlook-email)
 
-⚠️ 此按钮**无法一键部署**：项目依赖 D1 数据库与 Secret，需手动建库、跑迁移、设密钥，按钮会因框架检测失败而报错。请按 📖 [详细部署教程](./docs/GUIDE.md) 操作（约 5 分钟）。
+☝️ 按钮会克隆仓库并直接构建。本仓库已自带 `wrangler.toml`，但 `database_id` 是占位符——
+**按下面的「方式一 / 方式二」操作才能部署成功**，按钮只是快捷入口。
 
 🌐 [English](./README_EN.md) · 📖 [详细部署教程](./docs/GUIDE.md) · 🔌 [对外 API 文档](./docs/API.md)
 
@@ -37,10 +38,60 @@
 - 🎨 **精致主题** — 深色/浅色/跟随系统，毛玻璃质感 + 圆形扫掠切换 + 低频呼吸光晕
 - 🌐 **中英双语** — 默认中文，顶栏一键切换 English，偏好本地记忆，后端消息同步翻译
 - 🆓 **完全免费** — 运行在 Cloudflare 免费层，无需信用卡
+- ⚡ **连仓库即部署** — 仓库自带 `wrangler.toml`，在 Cloudflare 里「Connect to Git」即可自动构建部署；数据库表结构在首次请求时自动创建，无需手动跑迁移
 
-## 🚀 快速部署
+## 🚀 部署
 
-> 💡 完整步骤请看 [详细部署教程](./docs/GUIDE.md)
+### 方式一：连接 GitHub 仓库（推荐，改代码自动重新部署）
+
+> 全程不装任何工具，全部在网页上完成。
+
+**1. Fork 仓库**
+
+打开 <https://github.com/roseforyou/cf-outlook-email> → 右上角 **Fork**。
+
+**2. 在 Cloudflare 连接仓库**
+
+控制台 → **Workers & Pages** → **Create application** → **Workers** → **Connect to Git** → 授权 GitHub → 选中你 fork 的仓库。
+
+**3. 填写构建设置**
+
+| 字段 | 填什么 |
+|------|--------|
+| Build command | `pnpm run build` |
+| Deploy command | `pnpm run deploy:cf` |
+
+`deploy:cf` 会依次完成：**自动创建 D1 数据库** → 写入 `database_id` → 应用表结构 → 部署 Worker。
+（如果构建环境没有建库权限，会直接报错提示你改用手动方式，见下方「备用：手动创建数据库」。）
+
+**4. 设置两个 Secret（部署完就能设）**
+
+Worker 页面 → **Settings** → **Variables and Secrets** → **Add** → 类型选 **Secret**，加两条：
+
+| 名称 | 值 |
+|------|-----|
+| `ADMIN_PASSWORD` | 你的登录密码 |
+| `COOKIE_SECRET` | 随便一串长随机字符串（32 位以上，例如用密码管理器生成） |
+
+> 不设也能打开登录页，但点登录会提示「服务端密钥未配置」。
+
+**5. 打开网址登录**
+
+形如 `https://outlook-email.<你的子域>.workers.dev`，输入 `ADMIN_PASSWORD` 即可。数据库表结构会在第一次请求时自动建好。
+
+以后往 fork 里提交代码，Cloudflare 会自动重新构建部署。
+
+<details>
+<summary><b>备用：手动创建数据库（构建环境无建库权限时）</b></summary>
+
+1. 控制台 → **Storage & Databases** → **D1 SQL Database** → **Create**，名字填 `outlook-email-db`
+2. 进入数据库，复制 **Database ID**
+3. 在你的 fork 里打开 `wrangler.toml`，把 `REPLACE_WITH_YOUR_DATABASE_ID` 替换成这个 ID，提交
+4. 回到 Worker 的 Build settings，把 Deploy command 改成 `npx wrangler deploy`，重新部署
+
+</details>
+
+### 方式二：命令行部署（本地开发也走这套）
 
 ```bash
 # 1. 克隆 & 安装
@@ -51,27 +102,43 @@ pnpm install
 # 2. 登录 Cloudflare
 pnpm exec wrangler login
 
-# 3. 创建数据库（把输出的 database_id 填入 wrangler.toml）
-pnpm exec wrangler d1 create outlook-email-db
-cp wrangler.toml.example wrangler.toml
-# 编辑 wrangler.toml，替换 REPLACE_WITH_YOUR_DATABASE_ID
+# 3. 一条命令建库 + 迁移 + 部署
+pnpm run deploy:cf
 
-# 4. 配置密码
+# 4. 设置密码
 pnpm exec wrangler secret put ADMIN_PASSWORD
 pnpm exec wrangler secret put COOKIE_SECRET
+```
 
-# 5. 初始化 & 部署
-pnpm exec wrangler d1 migrations apply outlook-email-db --remote
+不想用 `deploy:cf` 自动建库，也可以手动：
+
+```bash
+pnpm exec wrangler d1 create outlook-email-db   # 把输出的 database_id 填进 wrangler.toml
 pnpm exec wrangler deploy
 ```
 
-部署完成后访问输出的 URL，用设置的密码登录即可。🎉
+### 关于数据库表结构
+
+- **首次请求自动建表**：`src/migrate.ts` 会在第一次访问时执行 `migrations/*.sql`（全部是 `CREATE TABLE IF NOT EXISTS`，可重复执行），所以全新库不需要手动迁移。
+- 想显式迁移也可以：`pnpm run db:migrate`（远程）/ `pnpm run db:migrate:local`（本地）。
+- 加新版本迁移时只改 `migrations/`，`pnpm run build` 会把它同步进 `src/schema.ts`（该文件自动生成，勿手改）。
+
+### 本地开发
+
+```bash
+pnpm install
+echo 'ADMIN_PASSWORD=你的密码' > .dev.vars
+echo 'COOKIE_SECRET=随便一串长随机' >> .dev.vars
+pnpm run dev      # http://localhost:8787
+```
+
+`wrangler.toml` 已随仓库提供，无需再复制模板；`database_id` 保持占位符也能跑本地（本地用的是 `.wrangler/` 里的 SQLite）。
 
 ## 📮 添加邮箱
 
 登录后点击 **添加账号** → **一键授权** → 弹出微软登录窗口 → 授权后自动填入凭证 → 保存。
 
-支持所有 Outlook / Hotmail / Live 邮箱，也支持批量导入（格式：`邮箱----密码----client_id----refresh_token`）。
+支持所有 Outlook / Hotmail / Live 邮箱，也支持批量导入（格式：`邮箱----密码----client_id----refresh_token`），批量导入也可以通过 [对外 API](./docs/API.md#导入账号) 完成。
 
 ## 🧱 技术栈
 
@@ -82,20 +149,25 @@ pnpm exec wrangler deploy
 | 🗄️ 数据库 | Cloudflare D1 (SQLite) |
 | 🎨 前端 | 原生 HTML/CSS/JS |
 | 📧 邮件 | Microsoft Graph API |
-| 🚀 部署 | Wrangler |
+| 🚀 部署 | Wrangler / Cloudflare Workers Builds |
 
 ## 🗂️ 项目结构
 
 ```
 src/                     后端源码（Worker）
-├── index.ts             入口 + 路由
+├── index.ts             入口 + 路由 + 自动建表钩子
+├── migrate.ts           首次请求自动建表（全新库免手动迁移）
+├── schema.ts            由 migrations/*.sql 生成，勿手改
 ├── auth.ts              HMAC-SHA256 Cookie 鉴权
 ├── graph.ts             Graph API 集成
-├── routes/              业务路由（6 个模块）
-└── utils/               加密、校验工具
+├── importAccounts.ts    账号导入（查重 + 批量写入）
+├── routes/              业务路由（9 个模块）
+└── utils/               加密、校验、导入解析
 public/                  前端（静态 SPA）
-migrations/              D1 数据库建表
-tools/                   辅助脚本
+migrations/              D1 建表 SQL（唯一事实来源）
+tools/                   构建 / 部署 / i18n 检查脚本
+test/                    Vitest 单元测试
+wrangler.toml            部署配置（wrangler 与 Workers Builds 共用）
 ```
 
 ## 💰 免费额度
@@ -106,6 +178,8 @@ tools/                   辅助脚本
 | ⏱️ CPU 时间 | 10ms/请求 | ✅ |
 | 🌐 外部请求 | 50/次 | ✅ (单账号单请求) |
 | 💾 D1 存储 | 5 GB | ✅ |
+
+> 注意：D1 免费层单次调用约 50 条查询预算，所以对外 API 的批量导入单次上限是 300 条，超出请分批。
 
 ## 🗺️ 路线图
 
@@ -122,7 +196,7 @@ tools/                   辅助脚本
 - [x] 📄 分页加载（加载更多）
 - [x] 📭 临时邮箱（集成 GPTMail）
 - [x] 🎨 主题切换 + 圆形扫掠过渡 + 呼吸光晕
-- [x] 🔑 对外 API + API Key（免登录拉取邮件，自动化取验证码，见 [API 文档](./docs/API.md)）
+- [x] 🔑 对外 API + API Key（免登录拉取邮件、批量导入账号、查询账号清单，自动化取验证码，见 [API 文档](./docs/API.md)）
 - [x] 🗑️ 删除邮件（单条 / 批量，软删除到「已删除」）
 - [x] 📎 附件下载
 - [x] 🏷️ 标签系统（一个账号多标签，跨分组筛选）
@@ -130,6 +204,7 @@ tools/                   辅助脚本
 - [x] 🤖 Telegram 推送新邮件（Cron 轮询，新邮件实时推送到 Telegram，可配间隔）
 - [x] 🧭 界面打磨（页面级工具栏、仪表盘健康度卡片、设置页响应式网格、账号表分页、可搜索账号下拉）
 - [x] 🌐 界面国际化（默认中文，一键切换 English）
+- [x] 🚀 连接 GitHub 仓库即部署（自带 `wrangler.toml` + 首次请求自动建表）
 
 **计划中（欢迎 PR）**
 

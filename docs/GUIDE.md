@@ -2,17 +2,24 @@
 
 本教程面向零基础用户，一步步教你把 Outlook 邮件管理工具部署到 Cloudflare。
 
+**两种方式，任选其一：**
+
+- **方式 A（推荐）**：在 Cloudflare 里连接你的 GitHub 仓库，之后改代码自动重新部署。全程网页操作，不用装任何工具。
+- **方式 B**：命令行 `wrangler` 部署。适合本地开发，或想完全掌控每一步的人。
+
 ## 目录
 
-- [前置准备](#前置准备)
-- [第一步：安装工具](#第一步安装工具)
-- [第二步：获取代码](#第二步获取代码)
-- [第三步：登录 Cloudflare](#第三步登录-cloudflare)
-- [第四步：创建数据库](#第四步创建数据库)
-- [第五步：配置密码](#第五步配置密码)
-- [第六步：初始化数据库](#第六步初始化数据库)
-- [第七步：部署](#第七步部署)
-- [第八步：添加邮箱账号](#第八步添加邮箱账号)
+- [方式 A：连接 GitHub 仓库部署](#方式-a连接-github-仓库部署)
+- [方式 B：命令行部署](#方式-b命令行部署)
+  - [前置准备](#前置准备)
+  - [第一步：安装工具](#第一步安装工具)
+  - [第二步：获取代码](#第二步获取代码)
+  - [第三步：登录 Cloudflare](#第三步登录-cloudflare)
+  - [第四步：创建数据库](#第四步创建数据库)
+  - [第五步：配置密码](#第五步配置密码)
+  - [第六步：初始化数据库（可跳过）](#第六步初始化数据库可跳过)
+  - [第七步：部署](#第七步部署)
+- [添加邮箱账号](#添加邮箱账号)
 - [本地开发](#本地开发)
 - [关于 Client ID](#关于-client-id)
 - [Token 过期处理](#token-过期处理)
@@ -25,7 +32,79 @@
 
 ---
 
-## 前置准备
+## 方式 A：连接 GitHub 仓库部署
+
+### A1. Fork 仓库
+
+打开 <https://github.com/roseforyou/cf-outlook-email>，点右上角 **Fork**，把仓库复制到你的账号下。
+
+> 为什么不直接用原仓库？因为 Cloudflare 需要「授权你拥有的仓库」，而且构建时可能会写入配置（`deploy:cf` 会回填 `database_id`）。
+
+### A2. 在 Cloudflare 连接仓库
+
+1. 登录 [dash.cloudflare.com](https://dash.cloudflare.com/)
+2. 左侧 **Workers & Pages** → **Create application** → **Workers** 标签 → **Connect to Git**
+3. 首次使用会要求授权 GitHub，选择 **Only select repositories** 并选中你刚 fork 的仓库
+4. 点 **Install & Authorize**，然后选中仓库 → **Begin setup**
+
+### A3. 填写构建设置
+
+页面上会出现 Build settings，按下表填写：
+
+| 字段 | 填什么 |
+|------|--------|
+| Worker name | `outlook-email`（随意，和 `wrangler.toml` 的 `name` 一致最好） |
+| Build command | `pnpm run build` |
+| Deploy command | `pnpm run deploy:cf` |
+
+`pnpm run deploy:cf` 会依次做四件事：
+
+1. 检查 D1 数据库 `outlook-email-db` 是否存在，不存在就创建
+2. 把真实的 `database_id` 写进 `wrangler.toml`
+3. 应用 `migrations/` 里的表结构
+4. 执行 `wrangler deploy`
+
+填完点 **Deploy**，等 1～3 分钟。
+
+> 如果这一步报「无法创建 D1 数据库」，说明构建环境没有建库权限。改用下面的【备用：手动创建数据库】，然后把 Deploy command 换成 `npx wrangler deploy` 重新部署。
+
+### A4. 设置两个 Secret
+
+部署成功后，进入这个 Worker 的页面 → **Settings** → **Variables and Secrets** → **Add**：
+
+| 类型 | 名称 | 值 |
+|------|------|-----|
+| Secret | `ADMIN_PASSWORD` | 你的登录密码 |
+| Secret | `COOKIE_SECRET` | 一串随机字符，至少 32 位，例如 `aK3mX9pQ2wE8rT6yU1iO4sD7fG0hJ5l` |
+
+> 漏了这两条也能打开登录页，但点登录会提示「服务端密钥未配置」。Secret 保存后**立即生效**，不用重新部署。
+
+### A5. 打开网址登录
+
+Worker 页面右上角会显示访问地址，形如：
+
+```
+https://outlook-email.你的子域.workers.dev
+```
+
+打开它，用 `ADMIN_PASSWORD` 登录即可。**数据库表结构会在第一次请求时自动创建**，不需要手动跑迁移。
+
+之后你往 fork 里提交代码，Cloudflare 会自动重新构建部署。
+
+### 备用：手动创建数据库
+
+`deploy:cf` 建库失败时，手动来：
+
+1. 控制台 → **Storage & Databases** → **D1 SQL Database** → **Create database**，名字填 `outlook-email-db`
+2. 进入数据库详情，复制 **Database ID**（形如 `abc12345-xxxx-xxxx-xxxx-xxxxxxxxxxxx`）
+3. 在你的 fork 里打开 `wrangler.toml`，把 `REPLACE_WITH_YOUR_DATABASE_ID` 换成这个 ID，提交
+4. 回到 Worker → **Settings** → **Build** → 把 Deploy command 改成 `npx wrangler deploy` → 重新部署
+
+---
+
+## 方式 B：命令行部署
+
+### 前置准备
 
 你需要：
 
@@ -89,13 +168,9 @@ pnpm exec wrangler d1 create outlook-email-db
 database_id = "abc12345-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 ```
 
-**复制 `database_id` 的值**，然后：
+**复制 `database_id` 的值**，然后打开仓库里已自带的 `wrangler.toml`（不需要复制模板），把 `REPLACE_WITH_YOUR_DATABASE_ID` 替换为你的 database_id。
 
-```bash
-cp wrangler.toml.example wrangler.toml
-```
-
-打开 `wrangler.toml`，把 `REPLACE_WITH_YOUR_DATABASE_ID` 替换为你的 database_id。
+> 偷懒做法：直接跑 `pnpm run deploy:cf`，它会自动检查/创建数据库、回填 `database_id`、应用迁移并部署（等价于下面第六、七步）。
 
 ---
 
@@ -120,7 +195,7 @@ pnpm exec wrangler secret put COOKIE_SECRET
 
 ---
 
-## 第六步：初始化数据库
+## 第六步：初始化数据库（可跳过）
 
 ```bash
 pnpm exec wrangler d1 migrations apply outlook-email-db --remote
@@ -128,12 +203,18 @@ pnpm exec wrangler d1 migrations apply outlook-email-db --remote
 
 提示 "continue?" 时输入 `Y` 回车。
 
+> **这一步现在可以跳过**：Worker 会在第一次请求时自动执行 `migrations/` 里的建表语句（`src/migrate.ts`，全部是 `CREATE TABLE IF NOT EXISTS`，可重复执行）。
+> 手动跑一遍的好处是首次打开页面时少一次建表开销；两种做法结果一致。
+> 也可以用快捷命令：`pnpm run db:migrate`。
+
 ---
 
 ## 第七步：部署
 
 ```bash
 pnpm exec wrangler deploy
+# 或者一条命令搞定建库 + 迁移 + 部署：
+pnpm run deploy:cf
 ```
 
 部署成功后会输出你的访问地址：
@@ -146,7 +227,7 @@ https://outlook-email.你的用户名.workers.dev
 
 ---
 
-## 第八步：添加邮箱账号
+## 添加邮箱账号
 
 ### 方式一：一键授权（推荐，最简单）
 
@@ -178,20 +259,21 @@ https://outlook-email.你的用户名.workers.dev
 如果想先在本地试试再部署：
 
 ```bash
-# 创建本地配置
+# 创建本地密钥文件
 cat > .dev.vars << 'EOF'
 ADMIN_PASSWORD=test123
 COOKIE_SECRET=aK3mX9pQ2wE8rT6yU1iO4sD7fG0hJ5laK3mX9pQ
 EOF
 
-# 初始化本地数据库
-pnpm exec wrangler d1 migrations apply outlook-email-db --local
-
-# 启动
+# 启动（数据库表结构会在首次请求时自动创建）
 pnpm run dev
 ```
 
 访问 http://localhost:8787，用 `test123` 登录。
+
+- `wrangler.toml` 已随仓库提供，**不需要再复制模板**；`database_id` 保持占位符也能跑本地（本地用 `.wrangler/` 下的 SQLite，与云端无关）。
+- 想手动初始化本地库：`pnpm run db:migrate:local`。
+- 清空本地数据重新来过：删掉 `.wrangler/` 目录即可。
 
 ---
 
@@ -243,8 +325,8 @@ Client ID 是在 Microsoft Azure 注册应用时生成的唯一标识。它不�
 系统设置 → 「定时刷新 Token」→ 启用 + 设间隔/每批数量。Cloudflare 每 5 分钟唤醒一次，
 是否真正执行由「间隔」控制（worker 内按上次执行时间判断，默认 24 小时，远低于唤醒频率时大多数唤醒会直接跳过）。也可点「立即刷新一批」手动跑。
 
-> **部署相关**：定时任务依赖 `wrangler.toml` 里的 `[triggers] crons`（已在 `wrangler.toml.example` 写好）。
-> 从旧版本升级的话，确认你的 `wrangler.toml` 有这段并**重新 `wrangler deploy`** 才会注册定时触发器。
+> **部署相关**：定时任务依赖 `wrangler.toml` 里的 `[triggers] crons`（仓库里的 `wrangler.toml` 已写好）。
+> 从旧版本升级的话，确认你的配置里有这段并**重新部署**才会注册定时触发器。
 
 ⚠️ **频率别设太高（真实风险）**：
 
@@ -409,6 +491,16 @@ curl -X POST https://login.microsoftonline.com/common/oauth2/v2.0/token \
 
 ## 常见错误
 
+### 部署时报 `The detected framework ("Hono") cannot be automatically configured`
+
+仓库里**没有 `wrangler.toml`** 时，Cloudflare Workers Builds 会退化成「框架自动探测」：从 `package.json` 看到 `hono` 依赖 → 套用 Hono 预设（期望 Vite 构建、输出 `dist/`）→ 和本项目（`main = src/index.ts` + 静态资源）完全不符 → 报这个错。
+
+**本仓库已提交 `wrangler.toml`，正常不会遇到。** 如果你是用旧 fork 部署的，把上游的 `wrangler.toml` 同步过来（或在 Worker 的 Build settings 里显式指定 Build command `pnpm run build`、Deploy command `pnpm run deploy:cf`）即可。
+
+### 构建成功但打开页面报「数据库未就绪」
+
+`database_id` 还是占位符，或 D1 绑定指向不存在的库。用 `pnpm run deploy:cf` 部署会自动处理；手动部署的话按[第四步](#第四步创建数据库)把 ID 填进 `wrangler.toml`。
+
 ### `invalid_grant` / `grant is expired`
 
 Token 已过期。编辑账号 → 点"重新授权此邮箱"获取新 token。
@@ -439,23 +531,22 @@ Client ID 只有 IMAP 权限。编辑账号 → "重新授权"切换到 Thunderb
 ### 本地正常，部署后接口 500（登录就报 500）
 
 **最常见的部署问题。** 登录接口第一步就要读数据库，生产环境少配东西就会抛异常变成 500。
-按概率排查这三项：
+按概率排查这几项：
 
-1. **远程数据库没迁移**（最常见，本地迁移不算数）：
-   ```bash
-   pnpm exec wrangler d1 migrations apply outlook-email-db --remote
-   ```
-   远程库没有 `settings` / `accounts` 表 → 登录查表直接报错 → 500。
-2. **密钥没设**（生产必须单独设，本地的 `.dev.vars` 不会带上去）：
-   ```bash
-   pnpm exec wrangler secret put ADMIN_PASSWORD
-   pnpm exec wrangler secret put COOKIE_SECRET
-   ```
-   缺 `COOKIE_SECRET` 会在签发登录 Cookie 时抛异常 → 500。
-3. **`wrangler.toml` 里 `database_id` 填错或仍是占位符** `REPLACE_WITH_YOUR_DATABASE_ID`
+1. **密钥没设**（最常见。生产必须单独设，本地的 `.dev.vars` 不会带上去）：
+   - 命令行：`pnpm exec wrangler secret put ADMIN_PASSWORD` / `pnpm exec wrangler secret put COOKIE_SECRET`
+   - 或控制台：Worker → **Settings** → **Variables and Secrets** → **Add** → Secret
+   缺 `COOKIE_SECRET` 会在签发登录 Cookie 时抛异常。页面此时会提示「服务端密钥未配置：请用 wrangler secret put 设置 COOKIE_SECRET」——`wrangler secret put` 那句提示是命令行方案的写法，用控制台设也一样。
+2. **`wrangler.toml` 里 `database_id` 填错或仍是占位符** `REPLACE_WITH_YOUR_DATABASE_ID`
    → D1 绑定无效 → 查询报错 → 500。
+3. **远程数据库没迁移**（信息：新版已不需要，首次请求会自动建表）：
+   如果表结构是老版本遗留、缺新表，手动跑一次：
+   ```bash
+   pnpm run db:migrate
+   ```
 
-> 以上命令都作用于**线上**资源，本地无需启动 `pnpm run dev`。设完直接访问线上 URL 重新登录即可（secret 改动下次请求即生效，无需重新部署）。
+> 以上改动都作用于**线上**资源，本地无需启动 `pnpm run dev`。设完直接访问线上 URL 重新登录即可（secret 改动下次请求即生效，无需重新部署）。
+> 拿不准是哪一项时，先看真实报错（见下方「想看线上接口的真实报错」），错误码会直接告诉你：`CONFIG_MISSING` = 缺密钥，`DB_NOT_READY` / `DB_ERROR` = 数据库绑定或表结构问题。
 
 ### 加了 `--remote` 却仍显示 `Resource location: local`（迁移没生效）
 

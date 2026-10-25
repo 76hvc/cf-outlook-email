@@ -5,9 +5,10 @@
   "license": "GPL-3.0-or-later",
   "scripts": {
     "dev": "wrangler dev",
-    "build": "tsc --noEmit",
+    "build": "node tools/build-schema.mjs && tsc --noEmit",
     "deploy": "wrangler deploy",
-    "db:migrate": "wrangler d1 migrations apply outlook-email-db",
+    "deploy:cf": "node tools/cf-deploy.mjs",
+    "db:migrate": "wrangler d1 migrations apply outlook-email-db --remote",
     "db:migrate:local": "wrangler d1 migrations apply outlook-email-db --local",
     "test": "vitest run"
   },

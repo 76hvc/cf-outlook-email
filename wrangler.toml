@@ -1,0 +1,35 @@
+# Deployment config for both `wrangler deploy` and Cloudflare Workers Builds.
+#
+# This file is committed on purpose: when a repo has no wrangler config,
+# Workers Builds falls back to framework auto-detection, sees the `hono`
+# dependency in package.json, applies the Hono preset (Vite build -> dist/) and
+# fails with "The detected framework (Hono) cannot be automatically configured".
+# With wrangler.toml present, the build uses exactly this config instead.
+#
+# Before the first deploy, replace database_id with your own D1 Database ID
+# (Cloudflare dashboard -> Storage & Databases -> D1 -> your DB -> Database ID),
+# or run `pnpm run deploy:cf`, which creates the database and fills this line in
+# automatically.
+
+name = "outlook-email"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+
+# Static SPA (public/) is served by the same Worker.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# D1 database. The Worker also creates its own tables on first request
+# (src/migrate.ts), so an empty database is enough to start.
+[[d1_databases]]
+binding = "DB"
+database_name = "outlook-email-db"
+database_id = "REPLACE_WITH_YOUR_DATABASE_ID"
+migrations_dir = "migrations"
+
+# Base wake-up rate for the scheduled jobs (token keep-alive + Telegram push).
+# The real interval / batch size / on-off switch lives in 系统设置 at runtime.
+# Free plan allows up to 5 cron triggers per account.
+[triggers]
+crons = ["0 */6 * * *"]
