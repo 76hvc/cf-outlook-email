@@ -276,9 +276,24 @@ wrangler.toml            部署配置（wrangler 与 Workers Builds 共用）
 
 本项目仅供个人学习和管理自己的邮箱使用。请确保你对所管理的邮箱账号拥有合法授权，不得用于未授权访问他人邮箱或其他违法用途。默认 Client ID 为 Mozilla Thunderbird 公开 ID，仅供快速体验，正式使用建议[注册自己的 Azure 应用](./docs/GUIDE.md#自己注册-azure-应用)。使用者应自行承担因不当使用产生的一切法律责任，作者不承担任何责任。
 
-## 🙏 致谢
+## 🙏 来源与致谢
 
-本项目基于 [xiaozhi349/outlookEmail](https://github.com/xiaozhi349/outlookEmail) 改造而来。原项目为 Python Flask + SQLite 实现，本项目将其迁移至 Cloudflare Workers + D1，并重写了前后端代码。感谢原作者的工作。
+本仓库是 fork，代码来源链如下（越往下越早）：
+
+1. **[roseforyou/cf-outlook-email](https://github.com/roseforyou/cf-outlook-email)** —— 本仓库直接 fork 自这里。
+   Cloudflare Workers + Hono + D1 的架构与重写、以及本项目的绝大部分功能（一键授权、邮件读删、
+   分组/标签、批量导入导出、Telegram 推送、中英双语、对外 API）都是这个仓库完成的。
+2. **[xiaozhi349/outlookEmail](https://github.com/xiaozhi349/outlookEmail)** —— 上面那个版本的源头，
+   原版为 Python Flask + SQLite 实现。
+
+本 fork 相对上游的改动：
+
+- 对外 API 增加批量导入账号与账号清单（`POST` / `GET /api/external/accounts`）
+- 连接 GitHub 仓库直接部署：自动创建 D1、首次请求自动建表（旧库自动补齐缺失表）、
+  `keep_vars` 防止控制台变量在重新部署时被清空
+- 对应的文档（README / 部署教程 / API 文档）与单元测试
+
+功能与问题的功劳归两位原作者；本 fork 只做了上面这些增量。感谢他们的工作。
 
 ## 📜 许可证
 

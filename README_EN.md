@@ -268,9 +268,24 @@ wrangler.toml            deploy config (used by wrangler and Workers Builds)
 
 This project is intended for personal use to manage your own email accounts. Ensure you have legal authorization for all accounts you manage. The default Client ID is Mozilla Thunderbird's public ID for quick setup only — registering your own Azure app is recommended for production use. The author assumes no liability for any misuse.
 
-## 🙏 Credits
+## 🙏 Origin & Credits
 
-This project is a rewrite of [xiaozhi349/outlookEmail](https://github.com/xiaozhi349/outlookEmail), originally built with Python Flask + SQLite. It has been migrated to Cloudflare Workers + D1 with a completely new frontend and backend. Thanks to the original author.
+This repository is a fork. Lineage, newest first:
+
+1. **[roseforyou/cf-outlook-email](https://github.com/roseforyou/cf-outlook-email)** — what this repo was forked from.
+   The Cloudflare Workers + Hono + D1 architecture and nearly all features (one-click OAuth, email read/delete,
+   groups & tags, bulk import/export, Telegram push, bilingual UI, external API) were built there.
+2. **[xiaozhi349/outlookEmail](https://github.com/xiaozhi349/outlookEmail)** — the origin of the above,
+   originally written in Python Flask + SQLite.
+
+Changes in this fork:
+
+- external API: bulk account import and account inventory (`POST` / `GET /api/external/accounts`)
+- deploy straight from the GitHub repo: auto-create D1, create the schema on first request (and repair
+  older schemas), `keep_vars` so dashboard variables survive redeploys
+- matching docs (README / deployment guide / API docs) and unit tests
+
+Credit for the features and the hard problems belongs to the two upstream authors.
 
 ## 📜 License
 
