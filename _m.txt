@@ -1,8 +1,0 @@
-chore: point repo links at 76hvc/cf-outlook-email, drop the links section
-
-- fork/clone URLs, PR badge and the Deploy-to-Cloudflare button now target this
-  fork instead of the upstream roseforyou repo
-- sidebar GitHub icon (public/index.html) and the in-app links to the GUIDE /
-  API docs point here too
-- remove the "友情链接" (LINUX DO) block from README
-- the 致谢 section still credits the original xiaozhi349/outlookEmail project
