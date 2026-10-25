@@ -3,6 +3,7 @@ import type { Env, AccountRow } from '../types';
 import { first, query, run } from '../db';
 import { ok, fail } from '../response';
 import { getAccessToken, fetchEmails } from '../graph';
+import { timingSafeEqual } from '../utils/crypto';
 import { parseAccountPayload, MAX_IMPORT_ITEMS } from '../utils/accountImport';
 import { importAccounts, resolveGroupId } from '../importAccounts';
 
@@ -22,7 +23,8 @@ external.use('*', async (c, next) => {
     return fail('API_DISABLED', '对外 API 未启用：请在「系统设置」生成 API Key', 403);
   }
   const provided = c.req.header('X-API-Key') || c.req.query('key') || '';
-  if (provided !== configured) {
+  // Constant-time: a plain `!==` leaks the matching prefix length through timing
+  if (!timingSafeEqual(provided, configured)) {
     return fail('UNAUTHORIZED', 'API Key 无效', 401);
   }
   await next();
@@ -80,7 +82,7 @@ external.get('/emails', async (c) => {
     isRead: e.isRead,
   }));
 
-  return ok({ email, folder, count: items.length, items });
+  return ok({ email, folder, count: items.length, hasMore: result.hasMore ?? false, items });
 });
 
 // GET /api/external/accounts?status=&keyword=&limit=

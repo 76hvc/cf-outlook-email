@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { secureHeaders } from 'hono/secure-headers';
 import type { Env } from './types';
 import { authMiddleware } from './auth';
 import { fail } from './response';
@@ -46,6 +47,35 @@ app.onError((err, c) => {
   }
   return fail('INTERNAL_ERROR', '服务器内部错误，请检查部署配置（数据库迁移 / Secrets）', 500);
 });
+
+// Security headers for everything the Worker itself answers (API + anything not
+// covered by the static assets _headers file). The CSP keeps 'unsafe-inline'
+// because the SPA uses inline onclick handlers and inline <style> attributes;
+// dropping it would require rewriting the frontend to external listeners.
+// Email bodies render in a sandboxed iframe without allow-scripts, so inline
+// script in mail is inert regardless.
+app.use(
+  '*',
+  secureHeaders({
+    contentSecurityPolicy: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      fontSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"],
+      frameSrc: ["'self'", 'data:', 'blob:'],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'none'"],
+      frameAncestors: ["'none'"],
+    },
+    xFrameOptions: false, // superseded by frame-ancestors
+    referrerPolicy: 'no-referrer',
+    crossOriginEmbedderPolicy: false,
+    permissionsPolicy: { geolocation: [], microphone: [], camera: [] },
+  })
+);
 
 // Schema bootstrap: must be registered before every route so a fresh D1 gets
 // its tables created on the first request (see src/migrate.ts). Cheap after the

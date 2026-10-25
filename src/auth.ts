@@ -1,11 +1,19 @@
 import { Context, Next } from 'hono';
-import { hmacSign, hmacVerify, hashPassword } from './utils/crypto';
-import { first } from './db';
+import { hmacSign, hmacVerify, hashPassword, verifyPasswordHash } from './utils/crypto';
+import { first, run } from './db';
 import { unauthorized } from './response';
 import type { Env, SettingRow } from './types';
 
 const COOKIE_NAME = 'session';
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60; // 7 days
+
+// Login throttling: after this many failures the endpoint refuses to even check
+// the password for LOCK_MS. Stored in the settings table so it survives isolates.
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCK_MS = 5 * 60 * 1000;
+
+const KEY_FAILED = 'login_fail_count';
+const KEY_LOCKED_UNTIL = 'login_block_until';
 
 // Build cookie payload: expiry timestamp
 function buildPayload(expiresAt: number): string {
@@ -69,31 +77,62 @@ function getSessionFromCookie(cookieHeader: string | null): string | null {
   return null;
 }
 
-// Verify login password against stored hash or ADMIN_PASSWORD secret
+async function setSetting(db: D1Database, key: string, value: string): Promise<void> {
+  await run(
+    db,
+    `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
+    [key, value]
+  );
+}
+
+// Milliseconds left on the current lockout (0 when not locked)
+export async function loginLockRemainingMs(db: D1Database): Promise<number> {
+  const row = await first<SettingRow>(db, 'SELECT value FROM settings WHERE key = ?', [
+    KEY_LOCKED_UNTIL,
+  ]);
+  const until = parseInt(row?.value ?? '0', 10) || 0;
+  return Math.max(0, until - Date.now());
+}
+
+async function recordLoginFailure(db: D1Database): Promise<void> {
+  const row = await first<SettingRow>(db, 'SELECT value FROM settings WHERE key = ?', [KEY_FAILED]);
+  const count = (parseInt(row?.value ?? '0', 10) || 0) + 1;
+
+  if (count >= MAX_FAILED_ATTEMPTS) {
+    await setSetting(db, KEY_LOCKED_UNTIL, String(Date.now() + LOCK_MS));
+    await setSetting(db, KEY_FAILED, '0');
+    return;
+  }
+  await setSetting(db, KEY_FAILED, String(count));
+}
+
+async function clearLoginFailures(db: D1Database): Promise<void> {
+  await run(db, 'DELETE FROM settings WHERE key IN (?, ?)', [KEY_FAILED, KEY_LOCKED_UNTIL]);
+}
+
+// Verify login password against the stored hash, or ADMIN_PASSWORD on first run.
+// A successful legacy/weaker hash is upgraded in place (PBKDF2 with a new salt).
 export async function verifyPassword(
   db: D1Database,
   password: string,
   adminPassword: string
 ): Promise<boolean> {
-  // First check if there is a password hash in settings
   const row = await first<SettingRow>(db, 'SELECT value FROM settings WHERE key = ?', [
     'login_password_hash',
   ]);
 
   if (row) {
-    const inputHash = await hashPassword(password);
-    return inputHash === row.value;
+    const check = await verifyPasswordHash(password, row.value);
+    if (check.ok && check.needsRehash) {
+      await setSetting(db, 'login_password_hash', await hashPassword(password));
+    }
+    return check.ok;
   }
 
-  // Fallback: compare with ADMIN_PASSWORD secret directly, then store hash
-  if (password === adminPassword) {
-    const hashed = await hashPassword(password);
-    await db
-      .prepare(
-        `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('login_password_hash', ?, CURRENT_TIMESTAMP)`
-      )
-      .bind(hashed)
-      .run();
+  // First login: the ADMIN_PASSWORD secret is the source of truth, and its hash
+  // is stored so later secret changes do not silently take effect.
+  if (adminPassword && password === adminPassword) {
+    await setSetting(db, 'login_password_hash', await hashPassword(password));
     return true;
   }
 
@@ -118,3 +157,5 @@ export function authMiddleware() {
     await next();
   };
 }
+
+export { MAX_FAILED_ATTEMPTS, LOCK_MS, recordLoginFailure, clearLoginFailures };

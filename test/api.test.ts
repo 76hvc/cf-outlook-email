@@ -16,13 +16,45 @@ function createMockDB() {
 
 // Test crypto utilities
 describe('crypto utils', () => {
-  it('hashPassword produces consistent hex output', async () => {
-    // Web Crypto is available in vitest with happy-dom or jsdom
+  it('hashPassword produces a salted PBKDF2 string', async () => {
     const { hashPassword } = await import('../src/utils/crypto');
     const hash1 = await hashPassword('test123');
     const hash2 = await hashPassword('test123');
-    expect(hash1).toBe(hash2);
-    expect(hash1).toMatch(/^[0-9a-f]{64}$/); // SHA-256 = 64 hex chars
+
+    // pbkdf2$sha256$<iterations>$<salt>$<hash>
+    expect(hash1).toMatch(/^pbkdf2\$sha256\$\d+\$[0-9a-f]{32}\$[0-9a-f]{64}$/);
+    // Random salt: identical passwords must not produce identical hashes
+    expect(hash1).not.toBe(hash2);
+  });
+
+  it('verifyPasswordHash accepts the right password and rejects others', async () => {
+    const { hashPassword, verifyPasswordHash } = await import('../src/utils/crypto');
+    const stored = await hashPassword('correct horse');
+
+    await expect(verifyPasswordHash('correct horse', stored)).resolves.toEqual({
+      ok: true,
+      needsRehash: false,
+    });
+    await expect(verifyPasswordHash('wrong horse', stored)).resolves.toEqual({
+      ok: false,
+      needsRehash: false,
+    });
+  });
+
+  it('verifies legacy unsalted SHA-256 hashes and asks for a rehash', async () => {
+    const { sha256Hex, verifyPasswordHash } = await import('../src/utils/crypto');
+    const legacy = await sha256Hex('test123');
+
+    await expect(verifyPasswordHash('test123', legacy)).resolves.toEqual({ ok: true, needsRehash: true });
+    await expect(verifyPasswordHash('nope', legacy)).resolves.toEqual({ ok: false, needsRehash: false });
+  });
+
+  it('timingSafeEqual compares without early exit', async () => {
+    const { timingSafeEqual } = await import('../src/utils/crypto');
+    expect(timingSafeEqual('abc', 'abc')).toBe(true);
+    expect(timingSafeEqual('abc', 'abd')).toBe(false);
+    expect(timingSafeEqual('abc', 'abcd')).toBe(false);
+    expect(timingSafeEqual('', '')).toBe(true);
   });
 
   it('hmacSign and hmacVerify roundtrip', async () => {

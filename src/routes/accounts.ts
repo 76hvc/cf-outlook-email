@@ -286,10 +286,21 @@ accounts.get('/:id', async (c) => {
     [id]
   );
 
-  // For detail view, show full client_id but still mask refresh_token
+  // Explicit allowlist. Spreading the row here used to echo every column that
+  // exists on `accounts` — including the plaintext mailbox password — on every
+  // detail load. The UI edits the password as "leave blank to keep", so it only
+  // needs to know whether one is stored.
   return ok({
-    ...acc,
+    id: acc.id,
+    email: acc.email,
+    client_id: acc.client_id,
     refresh_token: maskToken(acc.refresh_token),
+    group_id: acc.group_id,
+    remark: acc.remark,
+    status: acc.status,
+    has_password: Boolean(acc.password),
+    created_at: acc.created_at,
+    updated_at: acc.updated_at,
     group_name: acc.group_name ?? '默认分组',
     group_color: acc.group_color ?? '#2563eb',
     tags: tagRows,

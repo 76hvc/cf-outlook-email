@@ -1,7 +1,16 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ok, badRequest, fail } from '../response';
-import { verifyPassword, issueSessionCookie, buildSetCookie, buildClearCookie, verifySession } from '../auth';
+import {
+  verifyPassword,
+  issueSessionCookie,
+  buildSetCookie,
+  buildClearCookie,
+  verifySession,
+  loginLockRemainingMs,
+  recordLoginFailure,
+  clearLoginFailures,
+} from '../auth';
 
 const auth = new Hono<{ Bindings: Env }>();
 
@@ -23,10 +32,31 @@ auth.post('/login', async (c) => {
     );
   }
 
+  // Brute-force guard: refuse to verify at all while locked out
+  const lockedMs = await loginLockRemainingMs(c.env.DB);
+  if (lockedMs > 0) {
+    return fail(
+      'TOO_MANY_ATTEMPTS',
+      `尝试过于频繁，请 ${Math.ceil(lockedMs / 1000)} 秒后再试`,
+      429
+    );
+  }
+
   const valid = await verifyPassword(c.env.DB, password, c.env.ADMIN_PASSWORD);
   if (!valid) {
+    await recordLoginFailure(c.env.DB);
+    const nowLockedMs = await loginLockRemainingMs(c.env.DB);
+    if (nowLockedMs > 0) {
+      return fail(
+        'TOO_MANY_ATTEMPTS',
+        `尝试过于频繁，请 ${Math.ceil(nowLockedMs / 1000)} 秒后再试`,
+        429
+      );
+    }
     return badRequest('密码错误');
   }
+
+  await clearLoginFailures(c.env.DB);
 
   const sessionValue = await issueSessionCookie(c.env.COOKIE_SECRET);
   const isSecure = new URL(c.req.url).protocol === 'https:';
