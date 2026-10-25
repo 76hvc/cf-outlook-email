@@ -233,6 +233,17 @@ test/                    Vitest 单元测试
 wrangler.toml            部署配置（wrangler 与 Workers Builds 共用）
 ```
 
+## 🔐 安全
+
+- **密码存储**：PBKDF2-SHA256（50,000 轮 + 每账号随机盐），旧版无盐 SHA-256 哈希在下次登录时自动升级
+- **登录限速**：连续 5 次密码错误锁定 5 分钟，锁定期内正确密码也不放行
+- **邮件正文隔离**：HTML 在 `sandbox` iframe 里渲染（无 `allow-scripts`，邮件里的脚本不会执行）；
+  远程图片和外部样式默认**屏蔽**，避免追踪像素泄露打开时间与 IP，需要时点「显示图片」
+- **凭证脱敏**：账号列表/详情只返回脱敏后的 token，明文邮箱密码不再随详情接口下发
+- **API Key 恒定时间比较**，避免通过响应时间猜前缀
+- **安全响应头**：CSP、`X-Frame-Options`、`Referrer-Policy`、`Permissions-Policy`、
+  `X-Content-Type-Options`（API 由 `secureHeaders` 中间件加，静态页由 `public/_headers` 加）
+
 ## 💰 免费额度
 
 | 资源 | 免费额度 | 够用？ |

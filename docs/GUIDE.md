@@ -586,6 +586,32 @@ Cloudflare 的 **Add** 弹窗默认就是 **Text**，手一快就中招。
 `deploy:cf` 部署完会执行 `wrangler secret list` 并打印 Worker 上实际有哪些 Secret，
 再缺就直接提示缺哪个——不用再靠猜。
 
+### 登录报「尝试过于频繁，请 N 秒后再试」
+
+连续输错 **5 次**密码会锁定登录 **5 分钟**（锁定期内输对也不放行）。等一会儿再试即可。
+
+等不及就手动清掉锁：
+
+```bash
+pnpm exec wrangler d1 execute outlook-email-db --remote \
+  --command "DELETE FROM settings WHERE key IN ('login_block_until','login_fail_count')"
+```
+
+### 忘记登录密码
+
+登录密码存在 D1 的 `settings.login_password_hash` 里（PBKDF2），`ADMIN_PASSWORD` 只在**首次**建哈希时用一次。
+删掉那条记录，下次登录就会重新以 `ADMIN_PASSWORD` 为准并重新建哈希：
+
+```bash
+pnpm exec wrangler d1 execute outlook-email-db --remote \
+  --command "DELETE FROM settings WHERE key='login_password_hash'"
+```
+
+### 邮件里的图片不显示
+
+这是故意的：远程图片会被用来做追踪像素，泄露你什么时候打开、从哪个 IP 打开。
+邮件正文上方有一条提示，点 **「显示图片 (N)」** 就会加载。
+
 ### `invalid_grant` / `grant is expired`
 
 Token 已过期。编辑账号 → 点"重新授权此邮箱"获取新 token。

@@ -226,6 +226,20 @@ test/                    Vitest unit tests
 wrangler.toml            deploy config (used by wrangler and Workers Builds)
 ```
 
+## 🔐 Security
+
+- **Password storage**: PBKDF2-SHA256 (50,000 iterations + per-password salt); unsalted SHA-256 hashes
+  written by older versions are upgraded automatically on the next successful login
+- **Login throttling**: 5 failed attempts lock the login for 5 minutes — the correct password is refused during the lock
+- **Email isolation**: HTML bodies render in a `sandbox` iframe without `allow-scripts`, so scripts in mail
+  never execute; remote images and external stylesheets are **blocked by default** (tracking pixels would
+  otherwise leak open time and IP) with a one-click "Show images"
+- **No credential echo**: account list/detail return masked tokens only; the plaintext mailbox password is
+  no longer sent to the browser
+- **Constant-time API key comparison**
+- **Security headers**: CSP, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`,
+  `X-Content-Type-Options` (via `secureHeaders` for the API and `public/_headers` for static pages)
+
 ## 💰 Free Tier Limits
 
 | Resource | Free Quota | Sufficient? |
