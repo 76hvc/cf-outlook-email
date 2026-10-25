@@ -75,6 +75,7 @@ let state = {
   tempEmails: [],
   selectedAccount: null,
   emailList: [],
+  emailHasMore: false,
   selectedEmail: null,
   selectedEmailIds: new Set(),
   pendingEmailAccount: null,
@@ -942,7 +943,11 @@ async function showEditAccountModal(id) {
       <textarea class="form-textarea" id="mAccToken" rows="3" placeholder="${t('留空保持原值')}">${isError ? '' : ''}</textarea>
       <div style="font-size:11px;color:var(--text-dim);margin-top:4px">${t('当前: {v}（已脱敏）。留空表示不修改，填入新值会覆盖。', { v: esc(a.refresh_token) })}</div>
     </div>
-    <div class="form-group"><label class="form-label">${t('密码')}</label><input class="form-input" id="mAccPwd" value="${esc(a.password || '')}"></div>
+    <div class="form-group">
+      <label class="form-label">${t('密码')}</label>
+      <input class="form-input" id="mAccPwd" placeholder="${t('留空保持原值')}" autocomplete="new-password">
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px">${a.has_password ? t('已保存密码（已隐藏）') : t('未保存密码')}</div>
+    </div>
     <div class="form-group"><label class="form-label">${t('分组')}</label><select class="form-select" id="mAccGroup">${state.groups.map(g => `<option value="${g.id}" ${g.id === a.group_id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></div>
     <div class="form-group"><label class="form-label">${t('备注')}</label><input class="form-input" id="mAccRemark" value="${esc(a.remark)}"></div>
     <div class="form-group"><label class="form-label">${t('标签')}</label>
@@ -1197,7 +1202,7 @@ async function fetchEmailPage(accountId, skip) {
   if (!res?.success || res.data?.error) {
     return { error: res?.data?.error || res?.error?.message || t('获取邮件失败') };
   }
-  return { items: res.data?.items || [] };
+  return { items: res.data?.items || [], hasMore: !!res.data?.hasMore };
 }
 
 // Render email item rows; `startIndex` keeps onclick indices aligned with state.emailList
@@ -1224,12 +1229,11 @@ function renderEmailItems(emails, startIndex) {
   }).join('');
 }
 
-// "Load more" footer — shown only when the last page was full (likely more to fetch).
-// Disabled for the aggregated "all" view, which returns a single merged page.
+// "Load more" footer — the server reports whether another page exists, so this
+// no longer guesses from the page size (and no longer excludes the aggregated
+// "all" view, whose pagination used to be silently broken).
 function loadMoreFooterHtml() {
-  const folder = document.getElementById('emailFolder')?.value || 'inbox';
-  if (folder === 'all') return '';
-  if (state.emailList.length === 0 || state.emailList.length % EMAIL_PAGE_SIZE !== 0) return '';
+  if (!state.emailHasMore) return '';
   return `<div id="loadMoreWrap" style="padding:12px;text-align:center">
     <button class="btn btn-sm" onclick="loadMoreEmails()">${t('加载更多')}</button>
   </div>`;
@@ -1264,13 +1268,14 @@ async function loadEmailList(accountId) {
   pane.innerHTML = '<div class="loading"><div class="spinner"></div>' + t('加载邮件...') + '</div>';
   document.getElementById('emailDetailPane').innerHTML = `<div class="empty-state">${t('选择一封邮件查看详情')}</div>`;
 
-  const { items, error } = await fetchEmailPage(accountId, 0);
+  const { items, error, hasMore } = await fetchEmailPage(accountId, 0);
   if (error) {
     pane.innerHTML = `<div class="empty-state" style="color:var(--danger)">${esc(tServer(error))}</div>`;
     return;
   }
 
   state.emailList = items;
+  state.emailHasMore = !!hasMore;
   updateEmailCount();
 
   if (state.emailList.length === 0) {
@@ -1290,21 +1295,27 @@ async function loadMoreEmails() {
   if (btn) { btn.disabled = true; btn.textContent = t('加载中...'); }
 
   const startIndex = state.emailList.length;
-  const { items, error } = await fetchEmailPage(accountId, startIndex);
+  const { items, error, hasMore } = await fetchEmailPage(accountId, startIndex);
   if (error) {
     toast(error, 'error');
     if (btn) { btn.disabled = false; btn.textContent = t('加载更多'); }
     return;
   }
-  if (!items.length) { wrap?.remove(); return; }
+  if (!items.length) { state.emailHasMore = false; wrap?.remove(); return; }
 
   state.emailList.push(...items);
+  state.emailHasMore = !!hasMore;
   if (wrap) wrap.insertAdjacentHTML('beforebegin', renderEmailItems(items, startIndex));
   updateEmailCount();
 
-  // Drop the footer when the last page wasn't full (no further pages)
-  if (items.length < EMAIL_PAGE_SIZE) wrap?.remove();
-  else if (btn) { btn.disabled = false; btn.textContent = t('加载更多'); }
+  // Rebuild the footer from the server's answer instead of guessing
+  if (wrap) {
+    if (state.emailHasMore) {
+      wrap.innerHTML = `<button class="btn btn-sm" onclick="loadMoreEmails()">${t('加载更多')}</button>`;
+    } else {
+      wrap.remove();
+    }
+  }
 }
 
 function refreshEmails() {
@@ -1356,6 +1367,7 @@ async function viewEmail(index) {
         <span>${t('时间:')} ${formatDate(e.receivedDateTime)}</span>
       </div>
       ${e.hasAttachments ? '<div id="emailAttachments" style="margin-bottom:16px"></div>' : ''}
+      <div id="emailBlockedBar"></div>
       <div class="detail-body">${bodyContent}</div>
     </div>
   `;
@@ -1369,8 +1381,73 @@ async function viewEmail(index) {
       doc.open();
       doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:sans-serif;font-size:14px;color:#333;margin:12px;}</style></head><body>${e.body.content}</body></html>`);
       doc.close();
+
+      // Tracking pixels fire as soon as the body renders, so remote assets are
+      // blocked until the user asks for them.
+      const blocked = blockRemoteResources(doc);
+      const bar = document.getElementById('emailBlockedBar');
+      if (bar && blocked) {
+        bar.innerHTML = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--primary-bg);border:1px solid var(--border-focus);border-radius:10px;padding:10px 12px;margin-bottom:12px">
+          <span style="font-size:12px;color:var(--text-dim)">${t('为保护隐私，远程图片已屏蔽')}</span>
+          <button class="btn btn-sm" onclick="showBlockedResources()">${t('显示图片')} (${blocked})</button>
+        </div>`;
+      }
     }
   }
+}
+
+// Neutralise remote resources inside an email body: images and other media would
+// otherwise notify the sender (IP, open time) the moment the mail is opened.
+// Scripts are already dead thanks to the iframe's sandbox (no allow-scripts).
+function blockRemoteResources(doc) {
+  if (!doc) return 0;
+  const isRemote = (v) => typeof v === 'string' && /^\s*(https?:)?\/\//i.test(v);
+  let count = 0;
+
+  const stash = (el, attr, dataAttr) => {
+    const url = el.getAttribute(attr);
+    if (!isRemote(url)) return;
+    el.setAttribute(dataAttr, url);
+    el.removeAttribute(attr);
+    if (el.tagName === 'IMG' && !el.getAttribute('alt')) el.setAttribute('alt', '[image blocked]');
+    count++;
+  };
+
+  doc.querySelectorAll('img[src], source[src], video[src], audio[src], iframe[src], embed[src], track[src]')
+    .forEach((el) => stash(el, 'src', 'data-blocked-src'));
+  doc.querySelectorAll('object[data]').forEach((el) => stash(el, 'data', 'data-blocked-data'));
+  doc.querySelectorAll('[srcset]').forEach((el) => stash(el, 'srcset', 'data-blocked-srcset'));
+  // External stylesheets can smuggle url() beacons as well
+  doc.querySelectorAll('link[href]').forEach((el) => stash(el, 'href', 'data-blocked-href'));
+
+  return count;
+}
+
+function showBlockedResources() {
+  const frame = document.getElementById('emailFrame') || document.getElementById('tempMailFrame');
+  const doc = frame?.contentDocument;
+  if (!doc) return;
+  doc.querySelectorAll('[data-blocked-src]').forEach((el) => {
+    el.setAttribute('src', el.getAttribute('data-blocked-src'));
+    el.removeAttribute('data-blocked-src');
+  });
+  doc.querySelectorAll('[data-blocked-data]').forEach((el) => {
+    el.setAttribute('data', el.getAttribute('data-blocked-data'));
+    el.removeAttribute('data-blocked-data');
+  });
+  doc.querySelectorAll('[data-blocked-srcset]').forEach((el) => {
+    el.setAttribute('srcset', el.getAttribute('data-blocked-srcset'));
+    el.removeAttribute('data-blocked-srcset');
+  });
+  doc.querySelectorAll('[data-blocked-href]').forEach((el) => {
+    el.setAttribute('href', el.getAttribute('data-blocked-href'));
+    el.removeAttribute('data-blocked-href');
+  });
+  const bar = document.getElementById('emailBlockedBar');
+  if (bar) {
+    bar.innerHTML = `<div style="font-size:12px;color:var(--text-dim);padding:6px 2px">${t('已加载远程图片')}</div>`;
+  }
+  resizeFrame(frame);
 }
 
 function resizeFrame(frame) {
@@ -1569,6 +1646,7 @@ async function viewTempMessage(emailId, messageId) {
       <h3>${esc(tServer(String(e.subject)))}</h3>
       <div style="color:var(--text-muted);font-size:13px;margin:8px 0">From: ${esc(String(e.from))} → ${esc(String(e.to))}</div>
       <div style="margin-top:16px">${bodyContent}</div>
+      <div id="emailBlockedBar"></div>
     </div>
   `;
 
@@ -1579,6 +1657,15 @@ async function viewTempMessage(emailId, messageId) {
       doc.open();
       doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:sans-serif;font-size:14px;color:#333;margin:12px;}</style></head><body>${e.body || ''}</body></html>`);
       doc.close();
+
+      const blocked = blockRemoteResources(doc);
+      const bar = document.getElementById('emailBlockedBar');
+      if (bar && blocked) {
+        bar.innerHTML = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--primary-bg);border:1px solid var(--border-focus);border-radius:10px;padding:10px 12px;margin-top:12px">
+          <span style="font-size:12px;color:var(--text-dim)">${t('为保护隐私，远程图片已屏蔽')}</span>
+          <button class="btn btn-sm" onclick="showBlockedResources()">${t('显示图片')} (${blocked})</button>
+        </div>`;
+      }
     }
   }
 }

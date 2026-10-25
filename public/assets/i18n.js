@@ -329,6 +329,11 @@ var I18N_EN = {
   '已保存': 'Saved',
   '没有需要更新的设置': 'Nothing to update',
   '设置已保存': 'Settings saved',
+  '已保存密码（已隐藏）': 'Password stored (hidden)',
+  '未保存密码': 'No password stored',
+  '为保护隐私，远程图片已屏蔽': 'Remote images blocked for privacy',
+  '显示图片': 'Show images',
+  '已加载远程图片': 'Remote images loaded',
 };
 
 // ========== Backend message translations (display-side only) ==========
@@ -497,6 +502,8 @@ var SERVER_EN_PATTERNS = [
   }],
   [/^单次最多导入 (\d+) 条（本次 (\d+) 条），请分批提交$/, 'At most $1 accounts per request (got $2) - submit in batches'],
   [/^分组不存在：group_id=(\d+)$/, 'Group not found: group_id=$1'],
+  // Login throttling
+  [/^尝试过于频繁，请 (\d+) 秒后再试$/, 'Too many attempts - try again in $1 seconds'],
 ];
 
 // ========== Core API ==========
