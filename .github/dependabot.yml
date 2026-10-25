@@ -1,0 +1,22 @@
+version: 2
+
+updates:
+  # Runtime + tooling deps. Grouped so a weekly run opens one PR instead of ten.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+    ignore:
+      # Wrangler major bumps change deploy behaviour; do those by hand
+      - dependency-name: wrangler
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

@@ -1,0 +1,11 @@
+{
+  // The main tsconfig.json only covers src/. Without this, type errors inside
+  // test/ would only surface at runtime — vitest strips types without checking
+  // them. Run with: tsc --noEmit -p tsconfig.test.json
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types", "vitest/globals"]
+  },
+  "include": ["test/**/*.ts"],
+  "exclude": ["node_modules"]
+}

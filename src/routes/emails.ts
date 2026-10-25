@@ -72,7 +72,7 @@ emails.get('/', async (c) => {
     hasAttachments: e.hasAttachments,
   }));
 
-  return ok({ items, total: items.length });
+  return ok({ items, total: items.length, hasMore: result.hasMore ?? false });
 });
 
 // GET /api/accounts/:id/emails/:messageId

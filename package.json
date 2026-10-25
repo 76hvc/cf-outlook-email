@@ -9,7 +9,7 @@
   "license": "GPL-3.0-or-later",
   "scripts": {
     "dev": "wrangler dev",
-    "build": "node tools/build-schema.mjs && tsc --noEmit",
+    "build": "node tools/build-schema.mjs && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "deploy": "wrangler deploy",
     "deploy:cf": "node tools/cf-deploy.mjs",
     "db:migrate": "wrangler d1 migrations apply outlook-email-db --remote",

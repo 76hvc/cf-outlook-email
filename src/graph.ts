@@ -4,6 +4,10 @@ import { maskToken } from './utils/validation';
 const TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
 const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 
+// Graph caps $top at 50. The aggregated (inbox + junk) view merges two folder
+// listings client-side, so it can only ever reach the newest 50 of each.
+const GRAPH_PAGE_MAX = 50;
+
 export interface GraphError {
   code: string;
   message: string;
@@ -60,29 +64,36 @@ export async function getAccessToken(
 export async function fetchEmails(
   accessToken: string,
   options: { folder?: string; top?: number; skip?: number; keyword?: string; includeBody?: boolean } = {}
-): Promise<{ items?: GraphMailMessage[]; error?: GraphError }> {
+): Promise<{ items?: GraphMailMessage[]; hasMore?: boolean; error?: GraphError }> {
   const { folder = 'inbox', top = 20, skip = 0, keyword, includeBody = false } = options;
 
-  // Aggregated view: merge inbox + junk, sorted by date desc. Single page (skip ignored)
-  // to keep merged ordering correct; 2 subrequests stay within the free-tier budget.
+  // Aggregated view: merge inbox + junk, sorted by date desc.
+  //
+  // To serve page N of the merged stream we need the newest (skip + top) rows of
+  // *each* folder, so that is what we ask Graph for. Two subrequests either way.
+  // The old code always asked for `top` with skip=0 and then sliced from index 0,
+  // which made every page after the first silently repeat page 1.
   if (folder === 'all') {
+    const want = Math.min(skip + top, GRAPH_PAGE_MAX);
     const [inbox, junk] = await Promise.all([
-      fetchEmails(accessToken, { folder: 'inbox', top, skip: 0, keyword, includeBody }),
-      fetchEmails(accessToken, { folder: 'junkemail', top, skip: 0, keyword, includeBody }),
+      fetchEmails(accessToken, { folder: 'inbox', top: want, skip: 0, keyword, includeBody }),
+      fetchEmails(accessToken, { folder: 'junkemail', top: want, skip: 0, keyword, includeBody }),
     ]);
     // If both fail, surface the error; otherwise show whatever succeeded
     if (inbox.error && junk.error) return { error: inbox.error };
+
     const merged = [...(inbox.items ?? []), ...(junk.items ?? [])]
       .sort((a, b) => (b.receivedDateTime ?? '').localeCompare(a.receivedDateTime ?? ''))
-      .slice(0, top);
-    return { items: merged };
+      .slice(skip, skip + top);
+
+    return { items: merged, hasMore: merged.length === top };
   }
 
   let url = `${GRAPH_BASE}/me/mailFolders/${folder}/messages`;
   // bodyPreview is hard-capped at 255 chars by Graph; select `body` for the full text.
   // Same single Graph request either way, so the subrequest budget is unaffected.
   const params = new URLSearchParams({
-    $top: String(top),
+    $top: String(Math.min(top, GRAPH_PAGE_MAX)),
     $skip: String(skip),
     $orderby: 'receivedDateTime desc',
     $select:
@@ -120,7 +131,8 @@ export async function fetchEmails(
     }
 
     const data = (await res.json()) as { value: GraphMailMessage[] };
-    return { items: data.value || [] };
+    const items = data.value || [];
+    return { items, hasMore: items.length === Math.min(top, GRAPH_PAGE_MAX) };
   } catch (e) {
     return {
       error: {

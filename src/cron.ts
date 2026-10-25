@@ -106,10 +106,17 @@ export async function runEmailPush(env: Env, opts: { force?: boolean } = {}): Pr
     }
   }
 
-  // Oldest-updated active accounts first so coverage rotates across runs
+  // Rotate on push_state's own timestamp, not accounts.updated_at: the token
+  // refresher rewrites accounts.updated_at for every account it touches, which
+  // kept reshuffling this selection and starving accounts from the push sweep.
+  // Accounts never pushed have no row yet and sort first (COALESCE '').
   const accounts = await query<AccountRow>(
     db,
-    `SELECT * FROM accounts WHERE status != 'disabled' ORDER BY updated_at ASC LIMIT ?`,
+    `SELECT a.* FROM accounts a
+       LEFT JOIN push_state p ON p.account_id = a.id
+      WHERE a.status != 'disabled'
+      ORDER BY COALESCE(p.updated_at, '') ASC
+      LIMIT ?`,
     [PUSH_MAX_ACCOUNTS]
   );
 
