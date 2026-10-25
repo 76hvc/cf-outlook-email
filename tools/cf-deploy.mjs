@@ -250,7 +250,11 @@ try {
 }
 
 log('部署 Worker …');
-runWrangler(['deploy']);
+// --keep-vars is also set in wrangler.toml, but passing it here makes the
+// guarantee independent of the config file: without it wrangler "will delete
+// all vars before setting those found in the Wrangler configuration", which is
+// how dashboard Variables kept disappearing on every redeploy.
+runWrangler(['deploy', '--keep-vars']);
 
 // Secrets are applied after the script exists (a brand-new Worker has no
 // secret store to write into). Existing secrets survive redeploys untouched.
