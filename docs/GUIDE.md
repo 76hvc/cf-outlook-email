@@ -66,6 +66,14 @@
 
 填完点 **Deploy**，等 1～3 分钟。
 
+> **⚠️ 账号里已经有这个项目的数据库了？**
+> 脚本会**复用同名库**（`outlook-email-db`），不会新建也不会清空——原有账号数据全部保留，
+> 只补齐缺失的表。构建日志会明确打印：
+> `[deploy] 复用已存在的数据库：outlook-email-db（xxxx-uuid）`。
+> 如果你的库叫别的名字，两种做法：
+> - Deploy command 改成 `D1_DB_NAME=你的库名 pnpm run deploy:cf`
+> - 或者按【备用：手动创建数据库】把 ID 直接填进 `wrangler.toml`（此时脚本不会再自动查找/建库）
+
 > 如果这一步报「无法创建 D1 数据库」，说明构建环境没有建库权限。改用下面的【备用：手动创建数据库】，然后把 Deploy command 换成 `npx wrangler deploy` 重新部署。
 
 ### A4. 设置两个 Secret
@@ -78,6 +86,15 @@
 | Secret | `COOKIE_SECRET` | 一串随机字符，至少 32 位，例如 `aK3mX9pQ2wE8rT6yU1iO4sD7fG0hJ5l` |
 
 > 漏了这两条也能打开登录页，但点登录会提示「服务端密钥未配置」。Secret 保存后**立即生效**，不用重新部署。
+
+> **⚠️ 复用旧数据库时，密码可能不认 `ADMIN_PASSWORD`。**
+> 登录校验的顺序是：先查 `settings` 表里的 `login_password_hash`，有就用它比对，**根本不会看 `ADMIN_PASSWORD`**。
+> 所以从旧版本升级上来的库，请用**原来的密码**登录，进去后在「系统设置」里改密码（会把哈希覆盖成新的）。
+> 密码忘了的话，删掉这行再重建即可：
+> ```bash
+> pnpm exec wrangler d1 execute outlook-email-db --remote --command "DELETE FROM settings WHERE key='login_password_hash'"
+> ```
+> 之后 `ADMIN_PASSWORD` 就会生效（首次成功登录时会把它的哈希写回库里）。
 
 ### A5. 打开网址登录
 
@@ -206,6 +223,8 @@ pnpm exec wrangler d1 migrations apply outlook-email-db --remote
 > **这一步现在可以跳过**：Worker 会在第一次请求时自动执行 `migrations/` 里的建表语句（`src/migrate.ts`，全部是 `CREATE TABLE IF NOT EXISTS`，可重复执行）。
 > 手动跑一遍的好处是首次打开页面时少一次建表开销；两种做法结果一致。
 > 也可以用快捷命令：`pnpm run db:migrate`。
+>
+> **从旧版本升级**：自动建表会检查 schema 声明的**全部**表，缺哪张补哪张（比如老库没有 `push_state` / `tags` / `account_tags`），**已有数据不动**。所以旧库也能直接跑新版本。
 
 ---
 

@@ -12,7 +12,12 @@
 // Steps 1-2 only run while wrangler.toml still holds the placeholder id, so a
 // repo that has already been configured deploys straight through.
 //
+// An existing database with the same name is REUSED, never recreated — that is
+// what makes redeploys safe and keeps previously imported accounts. The script
+// prints which database it bound so this is never a surprise.
+//
 // Usage:  node tools/cf-deploy.mjs        (or: pnpm run deploy:cf)
+//         D1_DB_NAME=my-other-db node tools/cf-deploy.mjs   # target a different DB
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -22,7 +27,8 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CONFIG = path.join(root, 'wrangler.toml');
 const PLACEHOLDER = 'REPLACE_WITH_YOUR_DATABASE_ID';
-const DB_NAME = 'outlook-email-db';
+// Override when the database already exists under another name.
+const DB_NAME = (process.env.D1_DB_NAME || 'outlook-email-db').trim();
 
 function log(msg) {
   console.log(`[deploy] ${msg}`);
@@ -74,6 +80,7 @@ function parseJsonArray(text) {
   }
 }
 
+// { uuid, name } or null
 function findExistingDatabase() {
   let out;
   try {
@@ -81,18 +88,23 @@ function findExistingDatabase() {
   } catch (e) {
     fail(
       '无法读取 D1 数据库列表（缺少 CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID，或未登录）。\n' +
-        '  请在 Cloudflare 控制台创建 D1 数据库 ' + DB_NAME + '，把它的 Database ID 填进 wrangler.toml 后重试。\n' +
+        `  请在 Cloudflare 控制台创建/选择 D1 数据库，把它的 Database ID 填进 wrangler.toml 后重试。\n` +
         '  本地错误：' + (e.stderr || e.message || String(e)).trim().split('\n')[0]
     );
   }
   const list = parseJsonArray(out);
   if (!Array.isArray(list)) return null;
-  const hit = list.find((db) => db && (db.name === DB_NAME || db.database_name === DB_NAME));
-  return hit ? hit.uuid || hit.database_id || null : null;
+  const uuid = (db) => db && (db.uuid || db.database_id || '');
+  const name = (db) => db && (db.name || db.database_name || '');
+
+  const hit = list.find((db) => name(db) === DB_NAME);
+  if (hit) return { uuid: uuid(hit), name: name(hit) };
+  return null;
 }
 
+// { uuid, name } or null
 function createDatabase() {
-  log(`创建 D1 数据库 ${DB_NAME} …`);
+  log(`未找到同名数据库，创建 D1 数据库 ${DB_NAME} …`);
   let out;
   try {
     out = runWrangler(['d1', 'create', DB_NAME], { capture: true });
@@ -108,17 +120,25 @@ function createDatabase() {
   }
   const m = /database_id\s*=\s*"([^"]+)"/.exec(out) || /"uuid"\s*:\s*"([^"]+)"/.exec(out);
   if (!m) return findExistingDatabase();
-  return m[1];
+  return { uuid: m[1], name: DB_NAME };
 }
 
-function writeId(config, id) {
-  const updated = config.replace(
-    new RegExp(`(^\\s*database_id\\s*=\\s*)"${PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`, 'm'),
-    `$1"${id}"`
+// Point wrangler.toml at the database we settled on (id and, if renamed, name).
+function writeBinding(config, uuid, name) {
+  let updated = config.replace(
+    new RegExp(`(^\\s*database_id\\s*=\\s*)"[^"]*"`, 'm'),
+    `$1"${uuid}"`
   );
+  if (name && name !== readName(updated)) {
+    updated = updated.replace(/(^\s*database_name\s*=\s*)"[^"]*"/m, `$1"${name}"`);
+  }
   if (updated === config) fail('没能把 database_id 写进 wrangler.toml（占位符已变化？）');
   fs.writeFileSync(CONFIG, updated, 'utf8');
-  log(`database_id 已写入 wrangler.toml：${id}`);
+}
+
+function readName(config) {
+  const m = /^\s*database_name\s*=\s*"([^"]*)"/m.exec(config);
+  return m ? m[1].trim() : '';
 }
 
 // ---- main ----
@@ -127,13 +147,24 @@ let config = readConfig();
 let id = configuredId(config);
 
 if (!id || id === PLACEHOLDER) {
-  log('wrangler.toml 里还是占位符，尝试自动准备 D1 …');
-  id = findExistingDatabase() || createDatabase();
-  if (!id) fail(`没有拿到 ${DB_NAME} 的 database_id，请在控制台创建后手动填入 wrangler.toml`);
-  writeId(config, id);
+  log('wrangler.toml 里还是占位符，查找可用的 D1 数据库 …');
+
+  let target = findExistingDatabase();
+  if (target) {
+    log(`复用已存在的数据库：${target.name}（${target.uuid}）`);
+    log('  原有数据保持不动，表结构只做增量补齐（全部语句都是 IF NOT EXISTS）。');
+  } else {
+    target = createDatabase();
+  }
+  if (!target || !target.uuid) fail(`没有拿到 ${DB_NAME} 的 database_id，请手动填入 wrangler.toml`);
+
+  writeBinding(config, target.uuid, target.name);
+  log(`已写入 wrangler.toml：database_id = ${target.uuid}`);
   config = readConfig();
 } else {
-  log(`使用已配置的 database_id：${id}`);
+  log(`wrangler.toml 已配置 database_id：${id}（不再自动查找/创建数据库）`);
+  const name = readName(config);
+  if (name) log(`  绑定库名：${name}`);
 }
 
 // Migrations are optional: the Worker also creates the schema on first request
@@ -142,11 +173,11 @@ try {
   log('应用数据库迁移 …');
   runWrangler(['d1', 'migrations', 'apply', DB_NAME, '--remote']);
 } catch (e) {
-  log('迁移未成功（不影响部署：首次请求会自动建表）');
+  log('迁移未成功（不影响部署：首次请求会自动补齐表结构）');
   const detail = `${e.stdout || ''}${e.stderr || ''}`.trim().split('\n').filter(Boolean).pop();
   if (detail) log(`  原因：${detail}`);
 }
 
 log('部署 Worker …');
 runWrangler(['deploy']);
-log('完成。首次打开页面时用 ADMIN_PASSWORD 登录；如未设置 Secret，请到控制台 Worker → Settings → Variables and Secrets 添加。');
+log('完成。首次打开页面时用 ADMIN_PASSWORD 登录（若数据库里已有旧密码哈希，则以旧密码为准，可在「系统设置」里改）。');

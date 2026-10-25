@@ -6,6 +6,10 @@
 // demand. Every statement is idempotent, so this is a no-op once the tables
 // exist — the cost is a single cheap query per isolate.
 //
+// It also repairs *partially* migrated databases: a deployment from an older
+// version may have `settings` but no `push_state`, so the probe checks for every
+// table the schema declares, not just the first one.
+//
 // `wrangler d1 migrations apply` still works and stays the canonical path for
 // versioned changes; this only guarantees that "deploy and open the URL" works.
 
@@ -16,6 +20,16 @@ import { chunk } from './db';
 // chunking keeps a future large migration from blowing the limit.
 const STATEMENTS_PER_BATCH = 25;
 
+// Every table the migrations create, derived from the generated schema so this
+// list cannot drift out of sync when a migration is added.
+export const REQUIRED_TABLES: readonly string[] = [
+  ...new Set(
+    SCHEMA_STATEMENTS.map(
+      (sql) => /^CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([A-Za-z0-9_]+)/i.exec(sql)?.[1]
+    ).filter((name): name is string => typeof name === 'string' && name.length > 0)
+  ),
+];
+
 // Per-isolate memo. A fresh isolate re-checks once, which is what we want after
 // a deploy that adds a migration.
 let schemaVerified = false;
@@ -25,12 +39,19 @@ export function resetSchemaState(): void {
   schemaVerified = false;
 }
 
-// Does the schema exist? `settings` is created by the first migration, so it is
-// the cheapest reliable probe.
+// True only when *all* declared tables exist (catches old/partial schemas).
 export async function schemaIsPresent(db: D1Database): Promise<boolean> {
+  if (!REQUIRED_TABLES.length) return false;
   try {
-    await db.prepare('SELECT 1 FROM settings LIMIT 1').first();
-    return true;
+    const placeholders = REQUIRED_TABLES.map(() => '?').join(',');
+    const row = await db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name IN (${placeholders})`
+      )
+      .bind(...REQUIRED_TABLES)
+      .first<{ n: number }>();
+    const found = Number((row as { n?: number } | null)?.n ?? 0);
+    return found >= REQUIRED_TABLES.length;
   } catch {
     return false;
   }

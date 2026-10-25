@@ -64,6 +64,11 @@ Dashboard → **Workers & Pages** → **Create application** → **Workers** →
 `deploy:cf` will **create the D1 database**, write its `database_id` into `wrangler.toml`, apply the schema, and deploy the Worker.
 (If the build environment lacks permission to create databases it fails with a clear message — use "Manual database setup" below instead.)
 
+> **Already have a database for this project?** An existing database with the same name (`outlook-email-db`)
+> is **reused**, never recreated — all imported accounts stay, only missing tables are added.
+> The build log prints `复用已存在的数据库：…（uuid）`. If your database has another name, either set
+> the Deploy command to `D1_DB_NAME=your-db pnpm run deploy:cf`, or fill `wrangler.toml` in by hand (see below).
+
 **4. Add two Secrets**
 
 Worker page → **Settings** → **Variables and Secrets** → **Add** → type **Secret**:
@@ -74,6 +79,9 @@ Worker page → **Settings** → **Variables and Secrets** → **Add** → type 
 | `COOKIE_SECRET` | any long random string (32+ characters) |
 
 > Without these the login page still loads, but logging in reports "server secret not configured".
+>
+> **Reusing an old database?** If `settings.login_password_hash` already exists, that stored hash wins and
+> `ADMIN_PASSWORD` is not consulted. Log in with the old password, then change it under **Settings**.
 
 **5. Open the URL and log in**
 
@@ -118,6 +126,7 @@ pnpm exec wrangler deploy
 ### About the schema
 
 - **Auto-created on first request**: `src/migrate.ts` runs `migrations/*.sql` when the tables are missing (all statements are `CREATE TABLE IF NOT EXISTS`, so re-running is safe). A brand-new database needs no manual migration.
+- **Upgrading from an older version is safe**: the probe checks for *every* table the schema declares and adds whatever is missing (e.g. an older DB without `push_state` / `tags`); existing rows are untouched.
 - Explicit migration is still available: `pnpm run db:migrate` (remote) / `pnpm run db:migrate:local` (local).
 - To add a migration, only touch `migrations/` — `pnpm run build` folds it into `src/schema.ts` (generated, do not edit).
 

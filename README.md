@@ -64,6 +64,11 @@
 `deploy:cf` 会依次完成：**自动创建 D1 数据库** → 写入 `database_id` → 应用表结构 → 部署 Worker。
 （如果构建环境没有建库权限，会直接报错提示你改用手动方式，见下方「备用：手动创建数据库」。）
 
+> **账号里已经有这个项目的库了？** 会直接**复用同名数据库**（`outlook-email-db`），不新建、不清空，
+> 原有账号数据全部保留，只补齐缺失的表。构建日志里会打印 `复用已存在的数据库：…（uuid）`。
+> 库名不一样的话，把 Deploy command 改成 `D1_DB_NAME=你的库名 pnpm run deploy:cf`，
+> 或者按「备用」步骤把 ID 填进 `wrangler.toml`。
+
 **4. 设置两个 Secret（部署完就能设）**
 
 Worker 页面 → **Settings** → **Variables and Secrets** → **Add** → 类型选 **Secret**，加两条：
@@ -74,6 +79,10 @@ Worker 页面 → **Settings** → **Variables and Secrets** → **Add** → 类
 | `COOKIE_SECRET` | 随便一串长随机字符串（32 位以上，例如用密码管理器生成） |
 
 > 不设也能打开登录页，但点登录会提示「服务端密钥未配置」。
+>
+> **复用旧库时注意**：如果数据库里已经存过登录密码（`settings.login_password_hash`），
+> 实际生效的是**那个旧密码**，`ADMIN_PASSWORD` 不参与校验。用旧密码登录后，
+> 到「系统设置」里改密码即可覆盖。
 
 **5. 打开网址登录**
 
@@ -120,6 +129,7 @@ pnpm exec wrangler deploy
 ### 关于数据库表结构
 
 - **首次请求自动建表**：`src/migrate.ts` 会在第一次访问时执行 `migrations/*.sql`（全部是 `CREATE TABLE IF NOT EXISTS`，可重复执行），所以全新库不需要手动迁移。
+- **旧版本升级也安全**：探针会检查 schema 声明的**全部**表，缺哪张补哪张（例如老库没有 `push_state` / `tags`），已有数据不动。
 - 想显式迁移也可以：`pnpm run db:migrate`（远程）/ `pnpm run db:migrate:local`（本地）。
 - 加新版本迁移时只改 `migrations/`，`pnpm run build` 会把它同步进 `src/schema.ts`（该文件自动生成，勿手改）。
 
