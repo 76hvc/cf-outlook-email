@@ -20,6 +20,7 @@
 //         D1_DB_NAME=my-other-db node tools/cf-deploy.mjs   # target a different DB
 
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -234,6 +235,55 @@ function verifySecrets() {
   return { known: names, missing };
 }
 
+// ---- cache busting ----
+
+// Static filenames have no content hash, so a browser that once cached
+// /assets/app.js keeps its own copy until that entry expires - fixes look like
+// they "did nothing". Stamping a content hash into the script/style URLs gives
+// every release a URL the browser has never seen, so a plain reload picks up the
+// new code (the HTML itself is always revalidated).
+//
+// The rewrite happens on disk only for the duration of the deploy; the original
+// files are restored afterwards so the repo is never left dirty.
+const STAMPED = [
+  ['assets/app.js', 'public/assets/app.js'],
+  ['assets/style.css', 'public/assets/style.css'],
+  ['assets/i18n.js', 'public/assets/i18n.js'],
+];
+const HTML_FILES = ['public/index.html', 'public/login.html'];
+
+function stampAssets() {
+  const hashes = new Map();
+  for (const [urlPath, file] of STAMPED) {
+    const abs = path.join(root, file);
+    if (!fs.existsSync(abs)) continue;
+    const digest = crypto.createHash('sha256').update(fs.readFileSync(abs)).digest('hex').slice(0, 10);
+    hashes.set(urlPath, digest);
+  }
+  if (!hashes.size) return () => {};
+
+  const backups = new Map();
+  for (const file of HTML_FILES) {
+    const abs = path.join(root, file);
+    if (!fs.existsSync(abs)) continue;
+    const original = fs.readFileSync(abs, 'utf8');
+    let updated = original;
+    for (const [urlPath, hash] of hashes) {
+      const escaped = urlPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      updated = updated.replace(new RegExp(`${escaped}(\\?v=[a-f0-9]+)?`, 'g'), `${urlPath}?v=${hash}`);
+    }
+    if (updated === original) continue;
+    backups.set(abs, original);
+    fs.writeFileSync(abs, updated, 'utf8');
+  }
+
+  if (backups.size) log(`已为静态资源加上版本号（${hashes.size} 个文件），部署后恢复原始文件`);
+  // Restore on the way out, whether the deploy succeeded or not
+  return () => {
+    for (const [abs, original] of backups) fs.writeFileSync(abs, original, 'utf8');
+  };
+}
+
 // ---- main ----
 
 let config = readConfig();
@@ -278,7 +328,12 @@ log('部署 Worker …');
 // guarantee independent of the config file: without it wrangler "will delete
 // all vars before setting those found in the Wrangler configuration", which is
 // how dashboard Variables kept disappearing on every redeploy.
-runWrangler(['deploy', '--keep-vars']);
+const restoreAssets = stampAssets();
+try {
+  runWrangler(['deploy', '--keep-vars']);
+} finally {
+  restoreAssets();
+}
 
 // Secrets are applied after the script exists (a brand-new Worker has no
 // secret store to write into). Existing secrets survive redeploys untouched.
