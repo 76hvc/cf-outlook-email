@@ -280,6 +280,95 @@ describe('API cache headers', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Folder listing (mail hides in subfolders the panel used to ignore)
+// ---------------------------------------------------------------------------
+describe('GET /api/accounts/:id/emails/folders', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('returns the real folder tree with nested folders under their parent', async () => {
+    globalThis.fetch = vi.fn(async (input: any) => {
+      const url = String(input);
+      if (url.includes('login.microsoftonline.com')) {
+        return { ok: true, status: 200, json: async () => ({ access_token: 'tok' }) } as any;
+      }
+      if (url.includes('/childFolders')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            value: [
+              {
+                id: 'child1',
+                displayName: '通知',
+                totalItemCount: 2,
+                unreadItemCount: 1,
+                parentFolderId: 'inbox-id',
+              },
+            ],
+          }),
+        } as any;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [
+            {
+              id: 'inbox-id',
+              displayName: 'Inbox',
+              totalItemCount: 10,
+              unreadItemCount: 3,
+              childFolderCount: 1,
+            },
+            { id: 'archive-id', displayName: 'Archive', totalItemCount: 0, childFolderCount: 0 },
+          ],
+        }),
+      } as any;
+    }) as any;
+
+    const accountDB = {
+      prepare: (sql: string) => ({
+        sql,
+        params: [] as unknown[],
+        bind(...p: unknown[]) {
+          this.params = p;
+          return this;
+        },
+        async first() {
+          return /FROM accounts WHERE id = \?/i.test(sql)
+            ? { id: 5, email: 'me@outlook.com', client_id: 'c', refresh_token: 'r', status: 'active' }
+            : null;
+        },
+        async all() {
+          return { results: [], meta: {} };
+        },
+        async run() {
+          return { results: [], meta: {} };
+        },
+      }),
+      batch: async () => [],
+    };
+
+    const emailsRoute = (await import('../src/routes/emails')).default;
+    const app = new Hono();
+    app.route('/accounts/:id/emails', emailsRoute);
+
+    const res = await app.request('/accounts/5/emails/folders', {}, { DB: accountDB } as any);
+    const body = (await res.json()) as any;
+
+    expect(res.status).toBe(200);
+    const byId = Object.fromEntries(body.data.folders.map((f: any) => [f.id, f]));
+    expect(byId['inbox-id']).toMatchObject({ name: 'Inbox', total: 10, unread: 3, depth: 0 });
+    // The child folder must be present and indented, not silently dropped
+    expect(byId['child1']).toMatchObject({ name: '通知', parent: 'inbox-id', depth: 1 });
+  });
+});
+
 describe('fetchEmails folder=all', () => {
   const originalFetch = globalThis.fetch;
 

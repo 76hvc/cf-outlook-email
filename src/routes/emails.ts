@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env, AccountRow } from '../types';
 import { first, run } from '../db';
 import { ok, notFound, badRequest } from '../response';
-import { getAccessToken, fetchEmails, fetchEmailDetail, deleteEmail, listAttachments, getAttachment } from '../graph';
+import { getAccessToken, fetchEmails, fetchEmailDetail, deleteEmail, listAttachments, getAttachment, listMailFolders } from '../graph';
 
 const emails = new Hono<{ Bindings: Env }>();
 
@@ -56,6 +56,7 @@ emails.get('/', async (c) => {
 
   const result = await fetchEmails(tokenResult.token, { folder, top, skip, keyword });
   if (result.error) {
+    console.warn(`[emails] account=${accountId} folder=${folder} ERROR ${result.error.code}: ${result.error.message}`);
     return ok({ items: [], error: result.error.message }, '获取邮件失败');
   }
 
@@ -73,6 +74,46 @@ emails.get('/', async (c) => {
   }));
 
   return ok({ items, total: items.length, hasMore: result.hasMore ?? false });
+});
+
+// GET /api/accounts/:id/emails/folders — the mailbox's real folder list.
+// MUST be registered before /:messageId, otherwise "folders" is read as a
+// message id. The UI needs this because mail routinely lands in subfolders that
+// the three well-known names (inbox / junkemail / deleteditems) do not cover.
+emails.get('/folders', async (c) => {
+  const accountId = parseInt(c.req.param('id')!, 10);
+  const acc = await first<AccountRow>(c.env.DB, 'SELECT * FROM accounts WHERE id = ?', [accountId]);
+  if (!acc) return notFound('账号不存在');
+
+  const tokenResult = await getTokenAndRefresh(c.env.DB, acc);
+  if (!tokenResult.token) return badRequest('Graph API 认证失败');
+
+  const result = await listMailFolders(tokenResult.token);
+  if (result.error) return badRequest(result.error.message);
+
+  const folders = (result.items ?? []).map((f) => ({
+    id: f.id,
+    name: f.displayName || '(未命名文件夹)',
+    total: f.totalItemCount ?? 0,
+    unread: f.unreadItemCount ?? 0,
+    parent: f.parentFolderId ?? null,
+  }));
+
+  // Indent nested folders in the dropdown
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  const depthOf = (start: { id: string; parent: string | null }): number => {
+    let depth = 0;
+    let cur = start.parent;
+    const seen = new Set<string>([start.id]);
+    while (cur && byId.has(cur) && !seen.has(cur) && depth < 5) {
+      seen.add(cur);
+      depth++;
+      cur = byId.get(cur)!.parent;
+    }
+    return depth;
+  };
+
+  return ok({ folders: folders.map((f) => ({ ...f, depth: depthOf(f) })) });
 });
 
 // GET /api/accounts/:id/emails/:messageId

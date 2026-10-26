@@ -77,6 +77,7 @@ let state = {
   emailList: [],
   emailHasMore: false,
   emailUpdatedAt: '',
+  folders: {},
   selectedEmail: null,
   selectedEmailIds: new Set(),
   pendingEmailAccount: null,
@@ -1195,6 +1196,38 @@ document.addEventListener('click', (e) => {
 
 const EMAIL_PAGE_SIZE = 30;
 
+// Folder dropdown: the static options below are graph well-known names and work
+// before the real folder list arrives. Once it does, they are replaced by the
+// mailbox's actual folders (with counts), because mail can land in subfolders
+// that "inbox" alone can never show.
+async function loadFolders(accountId) {
+  if (state.folders[accountId]) return renderFolderOptions(accountId);
+  const res = await api(`/accounts/${accountId}/emails/folders`);
+  if (!res?.success) return;
+  state.folders[accountId] = res.data?.folders || [];
+  renderFolderOptions(accountId);
+}
+
+function renderFolderOptions(accountId) {
+  const sel = document.getElementById('emailFolder');
+  if (!sel) return;
+  const folders = state.folders[accountId];
+  if (!folders || !folders.length) return;
+
+  const previous = sel.value;
+  const counts = (f) => {
+    if (!f.total) return '';
+    return f.unread ? ` (${f.unread}/${f.total})` : ` (${f.total})`;
+  };
+  const opts = folders.map((f) =>
+    `<option value="${esc(f.id)}">${'　'.repeat(f.depth || 0)}${esc(f.name)}${counts(f)}</option>`
+  ).join('');
+
+  sel.innerHTML = opts + `<option value="all">${t('全部（收件箱+垃圾箱）')}</option>`;
+  // Keep the user's choice when it still exists, otherwise land on the first folder
+  if ([...sel.options].some((o) => o.value === previous)) sel.value = previous;
+}
+
 // Fetch one page of emails. Returns { items } or { error }.
 async function fetchEmailPage(accountId, skip) {
   const keyword = document.getElementById('emailSearch')?.value?.trim();
@@ -1262,6 +1295,12 @@ function updateEmailCount() {
 
 async function loadEmailList(accountId) {
   if (!accountId) return;
+  // Folder ids are per-account: carrying one over to another mailbox would 404
+  const switchingAccount = String(state.selectedAccount) !== String(accountId);
+  if (switchingAccount) {
+    const sel = document.getElementById('emailFolder');
+    if (sel && [...sel.options].some((o) => o.value === 'inbox')) sel.value = 'inbox';
+  }
   state.selectedAccount = accountId;
   state.selectedEmail = null;
   state.emailList = [];
@@ -1287,6 +1326,9 @@ async function loadEmailList(accountId) {
   state.emailHasMore = !!hasMore;
   state.emailUpdatedAt = new Date().toLocaleTimeString();
   updateEmailCount();
+
+  // Fill the folder dropdown with the mailbox's real folders (counts included)
+  loadFolders(accountId);
 
   if (state.emailList.length === 0) {
     pane.innerHTML = `<div class="empty-state">${t('该文件夹暂无邮件')}</div>`;

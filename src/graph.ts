@@ -89,7 +89,7 @@ export async function fetchEmails(
     return { items: merged, hasMore: merged.length === top };
   }
 
-  let url = `${GRAPH_BASE}/me/mailFolders/${folder}/messages`;
+  let url = `${GRAPH_BASE}/me/mailFolders/${encodeURIComponent(folder)}/messages`;
   // bodyPreview is hard-capped at 255 chars by Graph; select `body` for the full text.
   // Same single Graph request either way, so the subrequest budget is unaffected.
   const params = new URLSearchParams({
@@ -211,6 +211,58 @@ export async function deleteEmail(
     return {
       ok: false,
       error: { code: 'NETWORK_ERROR', message: `Network error: ${e instanceof Error ? e.message : 'unknown'}` },
+    };
+  }
+}
+
+export interface GraphFolder {
+  id: string;
+  displayName: string;
+  totalItemCount?: number;
+  unreadItemCount?: number;
+  parentFolderId?: string;
+  childFolderCount?: number;
+}
+
+// List the mailbox's folders so the UI is not limited to the three well-known
+// ones. Mail does land in subfolders (Outlook rules, Focused/Other splits), and
+// a folder the panel cannot name is a folder the user cannot open.
+// One request for the top level plus at most MAX_CHILD_REQUESTS for children,
+// to stay well inside the free tier's subrequest budget.
+const MAX_CHILD_REQUESTS = 3;
+
+export async function listMailFolders(
+  accessToken: string
+): Promise<{ items?: GraphFolder[]; error?: GraphError }> {
+  const select = 'id,displayName,totalItemCount,unreadItemCount,parentFolderId,childFolderCount';
+  const headers = { Authorization: `Bearer ${accessToken}` };
+
+  const fetchFolders = async (path: string): Promise<GraphFolder[] | GraphError> => {
+    const res = await fetch(`${GRAPH_BASE}${path}`, { headers });
+    if (!res.ok) {
+      return { code: 'GRAPH_ERROR', message: `Failed to list folders: ${res.status}` };
+    }
+    const data = (await res.json()) as { value: GraphFolder[] };
+    return data.value ?? [];
+  };
+
+  try {
+    const root = await fetchFolders(`/me/mailFolders?$top=100&$select=${select}`);
+    if (!Array.isArray(root)) return { error: root };
+
+    const children: GraphFolder[] = [];
+    const parents = root.filter((f) => (f.childFolderCount ?? 0) > 0).slice(0, MAX_CHILD_REQUESTS);
+    for (const parent of parents) {
+      const sub = await fetchFolders(
+        `/me/mailFolders/${encodeURIComponent(parent.id)}/childFolders?$top=100&$select=${select}`
+      );
+      if (Array.isArray(sub)) children.push(...sub);
+    }
+
+    return { items: [...root, ...children] };
+  } catch (e) {
+    return {
+      error: { code: 'NETWORK_ERROR', message: e instanceof Error ? e.message : 'unknown' },
     };
   }
 }
