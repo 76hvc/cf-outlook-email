@@ -11,9 +11,16 @@
 # or run `pnpm run deploy:cf`, which creates the database and fills this line in
 # automatically.
 
-name = "outlook-email"
+name = "cf-outlook-email"
 main = "src/index.ts"
 compatibility_date = "2026-06-01"
+
+# NOTE on the name above: Workers Builds passes WRANGLER_CI_OVERRIDE_NAME (derived
+# from the Worker you created when connecting the repo) and wrangler overrides
+# this file with it. If the two disagree, every deploy logs
+#   "Failed to match Worker name ... Overriding using the CI provided Worker name"
+# and Workers Builds may open a pull request to "fix" this file. Keep them equal.
+# Secrets are per-Worker, so a name change means a fresh, empty secret set.
 
 # Keep dashboard-managed Variables across deploys.
 #

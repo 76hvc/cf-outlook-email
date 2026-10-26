@@ -607,6 +607,33 @@ pnpm exec wrangler d1 execute outlook-email-db --remote \
   --command "DELETE FROM settings WHERE key='login_password_hash'"
 ```
 
+### 部署成功，但 Secret 又没了 / 登录提示「服务端密钥未配置」
+
+先看构建日志里有没有这条：
+
+```
+▲ [WARNING] Failed to match Worker name. Your config file is using the Worker name
+  "outlook-email", but the CI system expected "cf-outlook-email".
+  Overriding using the CI provided Worker name.
+```
+
+**有的话，你名下有两个 Worker。** Workers Builds 会传 `WRANGLER_CI_OVERRIDE_NAME`（就是你在「连接仓库」时建的那个
+Worker 名，通常等于仓库名），wrangler 用它**覆盖** `wrangler.toml` 里的 `name`。于是：
+
+- 部署去了 `cf-outlook-email`
+- 而你之前设的 Secret 在 `outlook-email` 上 —— **Secret 是按 Worker 绑定的，不会跟着走**
+
+同理，如果你浏览器里开的是**旧 Worker 的网址**，那看到的还是旧代码，新功能当然没有。
+
+**处理**：
+
+1. 确认 `wrangler.toml` 的 `name` 和构建日志里 "Uploaded xxx" 的名字一致（本仓库已改为 `cf-outlook-email`）
+2. 到**新** Worker 的 Settings → Variables and Secrets 重新加一次 `ADMIN_PASSWORD`、`COOKIE_SECRET`
+3. 用新 Worker 的网址访问（构建日志末尾会打印，形如 `https://cf-outlook-email.你的子域.workers.dev`）
+4. 确认没问题后，把旧的同名 Worker 删掉，避免以后自己搞混
+
+> `pnpm run deploy:cf` 现在会在名字不一致时直接打警告，并说明 Secret 需要在新 Worker 上重设。
+
 ### 网页刷新看不到新邮件，但 API 能读到
 
 两边用的是同一个 Graph 调用，所以先按这四步定位：

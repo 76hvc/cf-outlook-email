@@ -149,6 +149,27 @@ function readName(config) {
   return m ? m[1].trim() : '';
 }
 
+// The Worker name (top-level `name`), not the database name.
+function readWorkerName(config) {
+  const m = /^\s*name\s*=\s*"([^"]*)"/m.exec(config);
+  return m ? m[1].trim() : '';
+}
+
+// Workers Builds sets WRANGLER_CI_OVERRIDE_NAME and wrangler silently prefers it
+// over wrangler.toml. Two names mean two separate Workers - and secrets are
+// per-Worker, so a rename looks exactly like "my secrets disappeared".
+function warnOnWorkerNameMismatch(config) {
+  const ciName = (process.env.WRANGLER_CI_OVERRIDE_NAME || '').trim();
+  const configName = readWorkerName(config);
+  if (!ciName || !configName || ciName === configName) return;
+
+  log(`⚠️  Worker 名不一致：wrangler.toml 是 "${configName}"，构建系统要求 "${ciName}"`);
+  log(`    本次会部署到 "${ciName}"（wrangler 由 CI 覆盖）。`);
+  log('    Secret 是按 Worker 绑定的：旧名字上的 ADMIN_PASSWORD / COOKIE_SECRET 不会跟过来，');
+  log(`    请到 "${ciName}" 的 Settings → Variables and Secrets 重新设置一次。`);
+  log(`    把 wrangler.toml 的 name 改成 "${ciName}" 即可消除这条警告。`);
+}
+
 // Worker secrets are persistent: a redeploy keeps whatever is already stored.
 // They are only re-applied when the values are present in the environment
 // (GitHub Actions job env, or Workers Builds build variables), which is what
@@ -216,6 +237,8 @@ function verifySecrets() {
 
 let config = readConfig();
 let id = configuredId(config);
+
+warnOnWorkerNameMismatch(config);
 
 if (!id || id === PLACEHOLDER) {
   log('wrangler.toml 里还是占位符，查找可用的 D1 数据库 …');
