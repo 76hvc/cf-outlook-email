@@ -9,6 +9,10 @@
   Permissions-Policy: geolocation=(), microphone=(), camera=()
   Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-src 'self' data: blob:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'
 
-# Hashed/static assets never change under the same URL
+# Asset filenames carry no content hash, so a long max-age means a browser keeps
+# executing the PREVIOUS app.js for the whole TTL after every deploy — the UI
+# silently stays on old code while the Worker behind it is already updated.
+# no-cache forces revalidation (ETag makes it a cheap 304) so a deploy is live
+# on the next page load. Add a content hash first if you ever want a long TTL.
 /assets/*
-  Cache-Control: public, max-age=3600
+  Cache-Control: no-cache

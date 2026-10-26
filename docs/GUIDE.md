@@ -634,6 +634,30 @@ Worker 名，通常等于仓库名），wrangler 用它**覆盖** `wrangler.toml
 
 > `pnpm run deploy:cf` 现在会在名字不一致时直接打警告，并说明 Secret 需要在新 Worker 上重设。
 
+### 改了代码、也重新部署了，页面还是老样子
+
+先确认**线上到底跑的是哪份文件**，别靠猜：
+
+```bash
+# 看静态资源被缓存多久
+curl -I https://你的域名/assets/app.js | grep -i cache-control
+
+# 看线上 JS 里有没有你要的新函数
+curl -s https://你的域名/assets/app.js | grep -c orderFolders
+```
+
+如果 `cache-control` 是 `public, max-age=3600`，那浏览器会把 `app.js` 缓存一小时——
+Worker 已经更新了，你点刷新拿到的还是旧的 JS，看起来就像"什么都没修"。
+
+> 本仓库的 `public/_headers` 已改成 `Cache-Control: no-cache`（配 ETag，每次加载只花一个 304）。
+> 静态文件名不带 content hash，所以**不能**给长 TTL，否则每次部署后的一小时内 UI 都是旧的。
+
+历史上已经吃过这个亏，遇到"改了没反应"时：
+
+1. **强制刷新**：`Ctrl+Shift+R`（Mac 是 `Cmd+Shift+R`），或在开发者工具 Network 面板勾选 Disable cache
+2. 仍然没变 → 用上面两条 curl 确认线上文件内容；`grep` 不到就是部署没跑到新提交
+3. 部署日志里 `Read N files from the assets directory` 的 N 不变，说明静态资源没更新
+
 ### 网页刷新看不到新邮件，但 API 能读到
 
 两边用的是同一个 Graph 调用，所以先按这四步定位：

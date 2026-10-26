@@ -1239,7 +1239,7 @@ async function loadFolders(accountId) {
 function folderLabel(f) {
   const name = (f.wellKnown && wellKnownLabel(f.wellKnown)) || f.name;
   const counts = f.total ? (f.unread ? ` (${f.unread}/${f.total})` : ` (${f.total})`) : '';
-  return { text: `${'　'.repeat(f.depth || 0)}${name}${counts}`, raw: name };
+  return `${'　'.repeat(f.depth || 0)}${name}${counts}`;
 }
 
 // Graph returns folders alphabetically, which puts "Archive" first and makes a
@@ -1292,8 +1292,7 @@ function renderFolderOptions(accountId) {
 
   const ordered = orderFolders(folders);
   const opts = ordered.map((f) => {
-    const label = folderLabel(f);
-    return `<option value="${esc(f.id)}">${esc(label.text)}</option>`;
+    return `<option value="${esc(f.id)}">${esc(folderLabel(f))}</option>`;
   }).join('');
 
   // 全部 first: it is the default view, so it should sit where the eye lands.

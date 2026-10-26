@@ -384,6 +384,57 @@ describe('GET /api/accounts/:id/emails/folders', () => {
     // The child folder must be present and indented, not silently dropped
     expect(byId['child1']).toMatchObject({ name: '通知', parent: 'inbox-id', depth: 1, wellKnown: null });
   });
+
+  it('still lists folders when $batch fails (labels fall back to displayName)', async () => {
+    globalThis.fetch = vi.fn(async (input: any) => {
+      const url = String(input);
+      if (url.includes('login.microsoftonline.com')) {
+        return { ok: true, status: 200, json: async () => ({ access_token: 'tok' }) } as any;
+      }
+      if (url.endsWith('/$batch')) {
+        return { ok: false, status: 500, json: async () => ({}) } as any;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          value: [{ id: 'inbox-id', displayName: 'Inbox', totalItemCount: 1, childFolderCount: 0 }],
+        }),
+      } as any;
+    }) as any;
+
+    const accountDB = {
+      prepare: (sql: string) => ({
+        sql,
+        bind() {
+          return this;
+        },
+        async first() {
+          return /FROM accounts WHERE id = \?/i.test(sql)
+            ? { id: 5, email: 'me@outlook.com', client_id: 'c', refresh_token: 'r', status: 'active' }
+            : null;
+        },
+        async all() {
+          return { results: [], meta: {} };
+        },
+        async run() {
+          return { results: [], meta: {} };
+        },
+      }),
+      batch: async () => [],
+    };
+
+    const emailsRoute = (await import('../src/routes/emails')).default;
+    const app = new Hono();
+    app.route('/accounts/:id/emails', emailsRoute);
+
+    const res = await app.request('/accounts/5/emails/folders', {}, { DB: accountDB } as any);
+    const body = (await res.json()) as any;
+
+    // The folder list itself must survive; only the nice label is missing
+    expect(res.status).toBe(200);
+    expect(body.data.folders[0]).toMatchObject({ id: 'inbox-id', name: 'Inbox', wellKnown: null });
+  });
 });
 
 describe('fetchEmails folder=all', () => {
