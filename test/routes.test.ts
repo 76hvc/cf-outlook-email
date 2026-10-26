@@ -437,6 +437,146 @@ describe('GET /api/accounts/:id/emails/folders', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// External API (/api/external/emails) - the path scripts use to poll for mail.
+// Guard against regressions from changes to the shared fetchEmails().
+// ---------------------------------------------------------------------------
+describe('GET /api/external/emails', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  function createExternalDB(apiKey: string | null) {
+    return {
+      prepare: (sql: string) => ({
+        sql,
+        params: [] as unknown[],
+        bind(...p: unknown[]) {
+          this.params = p;
+          return this;
+        },
+        async first() {
+          // The API-key lookup uses a literal key, not a bound parameter
+          if (/FROM settings WHERE key = 'external_api_key'/i.test(sql)) {
+            return apiKey ? { value: apiKey } : null;
+          }
+          if (/FROM accounts WHERE lower\(email\) = \?/i.test(sql)) {
+            const asked = String(this.params[0] ?? '').toLowerCase();
+            if (asked !== 'me@outlook.com') return null;
+            return {
+              id: 5,
+              email: 'me@outlook.com',
+              client_id: 'c',
+              refresh_token: 'r',
+              status: 'active',
+            };
+          }
+          return null;
+        },
+        async all() {
+          return { results: [], meta: {} };
+        },
+        async run() {
+          return { results: [], meta: {} };
+        },
+      }),
+      batch: async () => [],
+    };
+  }
+
+  const mail = (id: string, at: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    subject: 'subject ' + id,
+    from: { emailAddress: { name: 'x', address: 'x@y.z' } },
+    receivedDateTime: at,
+    bodyPreview: 'preview ' + id,
+    isRead: false,
+    ...extra,
+  });
+
+  function stubGraph() {
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn(async (input: any) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.includes('login.microsoftonline.com')) {
+        return { ok: true, status: 200, json: async () => ({ access_token: 'tok' }) } as any;
+      }
+      const isJunk = url.includes('junkemail');
+      const items = isJunk
+        ? [mail('j1', '2026-10-26T09:00:00Z', { body: { contentType: 'text', content: 'junk body' } })]
+        : [mail('i1', '2026-10-26T10:00:00Z', { body: { contentType: 'text', content: 'inbox body' } })];
+      return { ok: true, status: 200, json: async () => ({ value: items }) } as any;
+    }) as any;
+    return calls;
+  }
+
+  async function call(query: string, key = 'test-key', apiKey: string | null = 'test-key') {
+    const external = (await import('../src/routes/external')).default;
+    const db = createExternalDB(apiKey);
+    const res = await external.request(
+      `/emails?${query}`,
+      { headers: { 'X-API-Key': key } },
+      { DB: db } as any
+    );
+    return { res, body: (await res.json()) as any };
+  }
+
+  it('still returns the documented shape for folder=inbox', async () => {
+    stubGraph();
+    const { res, body } = await call('email=me@outlook.com&folder=inbox&top=10');
+
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.data).toMatchObject({ email: 'me@outlook.com', folder: 'inbox', count: 1 });
+    expect(body.data.items[0]).toMatchObject({
+      id: 'i1',
+      subject: 'subject i1',
+      from: { address: 'x@y.z' },
+      bodyPreview: 'preview i1',
+      isRead: false,
+    });
+    // hasMore is additive: old clients ignore it, new ones can page
+    expect(typeof body.data.hasMore).toBe('boolean');
+    // includeBody stays opt-in
+    expect(body.data.items[0].body).toBeUndefined();
+  });
+
+  it('still merges inbox + junk for folder=all', async () => {
+    stubGraph();
+    const { body } = await call('email=me@outlook.com&folder=all&top=10');
+
+    // Newest first across both folders
+    expect(body.data.items.map((m: any) => m.id)).toEqual(['i1', 'j1']);
+    expect(body.data.count).toBe(2);
+  });
+
+  it('still honours includeBody=1', async () => {
+    stubGraph();
+    const { body } = await call('email=me@outlook.com&folder=inbox&top=1&includeBody=1');
+    expect(body.data.items[0].body).toBe('inbox body');
+  });
+
+  it('still rejects a wrong or missing API key', async () => {
+    stubGraph();
+    const wrong = await call('email=me@outlook.com', 'nope');
+    expect(wrong.res.status).toBe(401);
+    expect(wrong.body.error.code).toBe('UNAUTHORIZED');
+
+    const disabled = await call('email=me@outlook.com', 'test-key', null);
+    expect(disabled.res.status).toBe(403);
+    expect(disabled.body.error.code).toBe('API_DISABLED');
+  });
+
+  it('still reports a missing email parameter and unknown account', async () => {
+    stubGraph();
+    expect((await call('folder=inbox')).res.status).toBe(400);
+    expect((await call('email=nobody@outlook.com')).res.status).toBe(404);
+  });
+});
+
 describe('fetchEmails folder=all', () => {
   const originalFetch = globalThis.fetch;
 

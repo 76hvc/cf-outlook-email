@@ -230,6 +230,7 @@ for mail in data["data"]["items"]:
     "email": "abc@outlook.com",
     "folder": "all",
     "count": 2,
+    "hasMore": false,
     "items": [
       {
         "id": "AAQ...",
@@ -245,6 +246,9 @@ for mail in data["data"]["items"]:
 ```
 
 > 加 `includeBody=1` 时，每个 item 会多一个 `"body": "完整纯文本正文..."` 字段。
+>
+> `hasMore` 表示这一页之后还有没有更多；老客户端可以忽略它。
+> 响应头带 `Cache-Control: no-store`，因此任何中间缓存都不会返回上一次的旧邮件。
 
 失败：
 
