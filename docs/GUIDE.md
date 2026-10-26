@@ -607,6 +607,25 @@ pnpm exec wrangler d1 execute outlook-email-db --remote \
   --command "DELETE FROM settings WHERE key='login_password_hash'"
 ```
 
+### 网页刷新看不到新邮件，但 API 能读到
+
+两边用的是同一个 Graph 调用，所以先按这四步定位：
+
+1. **确认当前文件夹**。面板的收件箱对应 Graph 的 `inbox`，另外只有 `junkemail`、`deleteditems`。
+   Outlook 的收件规则经常把邮件分到**子文件夹**里 —— 子文件夹面板不列，API 也一样列不到，
+   除非你手动指定 `folder`。先切到「全部（收件箱+垃圾箱）」看看。
+2. **看刷新时间戳**。点「刷新」后，工具栏右侧的「已加载 N 封 · 更新于 HH:MM:SS」会变。
+   时间戳没变 = 请求没发出去（通常是没选中账号，下拉框为空时不会请求）。
+3. **打开 F12 → Network**，点刷新，找 `.../emails?top=30&skip=0&folder=inbox`：
+   - 出现 `(from cache)` / 304 → 命中缓存。现已修复：所有 `/api/*` 响应都带
+     `Cache-Control: no-store`，前端 `fetch` 也用 `cache: 'no-store'`。
+   - 200 但 `items: []` → 服务端确实没拿到，看响应体里的 `error` 字段（令牌失效会是 `TOKEN_FAILED`）。
+4. **对比时注意参数一致**。外部 API 默认 `top=10`、`folder=inbox`；如果你调的是
+   `folder=all`，那是另一个视图，不能直接对比。
+
+> 面板现在**切回浏览器标签页会自动刷新**（15 秒内不重复触发，且只在没有打开邮件详情时），
+> 发完测试邮件直接切回来即可。
+
 ### 邮件里的图片不显示
 
 这是故意的：远程图片会被用来做追踪像素，泄露你什么时候打开、从哪个 IP 打开。

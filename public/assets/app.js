@@ -76,6 +76,7 @@ let state = {
   selectedAccount: null,
   emailList: [],
   emailHasMore: false,
+  emailUpdatedAt: '',
   selectedEmail: null,
   selectedEmailIds: new Set(),
   pendingEmailAccount: null,
@@ -85,6 +86,9 @@ let state = {
 // ========== API Helpers ==========
 async function api(path, options = {}) {
   const res = await fetch(API + path, {
+    // Mail must never be served from a stale HTTP cache: without this a refresh
+    // can return the previous response for the same URL.
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
   });
@@ -1248,7 +1252,12 @@ function copySelectedEmail(btn) {
 
 function updateEmailCount() {
   const countEl = document.getElementById('emailCount');
-  if (countEl) countEl.textContent = t('已加载 {n} 封', { n: state.emailList.length });
+  if (!countEl) return;
+  let text = t('已加载 {n} 封', { n: state.emailList.length });
+  // Showing when the list was fetched makes "did refresh actually run?" visible,
+  // instead of guessing whether a new mail failed to arrive or the list was stale.
+  if (state.emailUpdatedAt) text += ` · ${t('更新于')} ${state.emailUpdatedAt}`;
+  countEl.textContent = text;
 }
 
 async function loadEmailList(accountId) {
@@ -1276,6 +1285,7 @@ async function loadEmailList(accountId) {
 
   state.emailList = items;
   state.emailHasMore = !!hasMore;
+  state.emailUpdatedAt = new Date().toLocaleTimeString();
   updateEmailCount();
 
   if (state.emailList.length === 0) {
@@ -1321,6 +1331,19 @@ async function loadMoreEmails() {
 function refreshEmails() {
   if (state.selectedAccount) loadEmailList(state.selectedAccount);
 }
+
+// Coming back to the tab after sending yourself a test mail is the most common
+// "where is it?" moment. Refresh quietly, but only when no message is open so
+// reading is never interrupted. Throttled to avoid hammering Graph on tab flips.
+let lastAutoRefresh = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (currentPage !== 'emails' || !state.selectedAccount || state.selectedEmail !== null) return;
+  const now = Date.now();
+  if (now - lastAutoRefresh < 15000) return;
+  lastAutoRefresh = now;
+  loadEmailList(state.selectedAccount);
+});
 
 // Switch mail folder (inbox / junkemail / deleteditems)
 function onFolderChange() {

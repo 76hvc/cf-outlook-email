@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { Hono } from 'hono';
 import { hashPassword, sha256Hex } from '../src/utils/crypto';
 
 // ---------------------------------------------------------------------------
@@ -156,8 +157,129 @@ describe('GET /api/accounts/:id', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Aggregated view pagination
+// Panel refresh path: GET /api/accounts/:id/emails
 // ---------------------------------------------------------------------------
+describe('GET /api/accounts/:id/emails (panel refresh)', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  function createAccountDB() {
+    const account = {
+      id: 5,
+      email: 'me@outlook.com',
+      client_id: 'cid',
+      refresh_token: 'rt',
+      password: '',
+      group_id: 1,
+      remark: '',
+      status: 'active',
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    };
+    return {
+      prepare: (sql: string) => ({
+        sql,
+        params: [] as unknown[],
+        bind(...p: unknown[]) {
+          this.params = p;
+          return this;
+        },
+        async first() {
+          return /FROM accounts WHERE id = \?/i.test(sql) ? account : null;
+        },
+        async all() {
+          return { results: [], meta: {} };
+        },
+        async run() {
+          return { results: [], meta: {} };
+        },
+      }),
+      batch: async () => [],
+    };
+  }
+
+  // Fake Graph: the inbox grows between calls, like a real mailbox receiving mail
+  it('shows mail that arrived since the previous fetch', async () => {
+    let inbox = [
+      {
+        id: 'm1',
+        subject: 'old mail',
+        from: { emailAddress: { name: 'a', address: 'a@x.com' } },
+        receivedDateTime: '2026-01-01T00:00:00Z',
+        bodyPreview: 'old',
+        isRead: true,
+        hasAttachments: false,
+      },
+    ];
+
+    globalThis.fetch = vi.fn(async (input: any) => {
+      const url = String(input);
+      if (url.includes('login.microsoftonline.com')) {
+        return { ok: true, status: 200, json: async () => ({ access_token: 'tok' }) } as any;
+      }
+      return { ok: true, status: 200, json: async () => ({ value: inbox }) } as any;
+    }) as any;
+
+    const emailsRoute = (await import('../src/routes/emails')).default;
+    // Mount exactly like src/index.ts does, so :id is provided by the parent
+    const app = new Hono();
+    app.route('/accounts/:id/emails', emailsRoute);
+    const env = { DB: createAccountDB() } as any;
+
+    const first = await app.request('/accounts/5/emails?top=30&skip=0&folder=inbox', {}, env);
+    expect(((await first.json()) as any).data.items.map((m: any) => m.id)).toEqual(['m1']);
+
+    // A new message arrives
+    inbox = [
+      {
+        id: 'm2',
+        subject: 'new mail',
+        from: { emailAddress: { name: 'b', address: 'b@x.com' } },
+        receivedDateTime: '2026-01-02T00:00:00Z',
+        bodyPreview: 'new',
+        isRead: false,
+        hasAttachments: false,
+      },
+      ...inbox,
+    ];
+
+    const second = await app.request('/accounts/5/emails?top=30&skip=0&folder=inbox', {}, env);
+    const body = (await second.json()) as any;
+
+    expect(body.data.items.map((m: any) => m.id)).toEqual(['m2', 'm1']);
+  });
+});
+
+// A stale cached GET would explain "refresh shows nothing while another URL
+// returns the mail", so API responses are explicitly uncacheable.
+describe('API cache headers', () => {
+  it('marks /api responses as no-store', async () => {
+    const db = {
+      prepare: (sql: string) => ({
+        bind() {
+          return this;
+        },
+        first: async () => (/sqlite_master/i.test(sql) ? { n: 7 } : null),
+        all: async () => ({ results: [], meta: {} }),
+        run: async () => ({ results: [], meta: {} }),
+      }),
+      batch: async () => [],
+    };
+    const worker = (await import('../src/index')).default;
+    const ctx = { waitUntil() {}, passThroughOnException() {} } as any;
+    const res = await worker.fetch(
+      new Request('http://example.com/api/auth/me'),
+      { DB: db, COOKIE_SECRET: 'test-secret' } as any,
+      ctx
+    );
+
+    expect(res.headers.get('Cache-Control')).toContain('no-store');
+  });
+});
+
 describe('fetchEmails folder=all', () => {
   const originalFetch = globalThis.fetch;
 

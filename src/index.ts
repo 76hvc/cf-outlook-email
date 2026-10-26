@@ -77,6 +77,15 @@ app.use(
   })
 );
 
+// Never let a browser or intermediary cache API responses. Without this a
+// panel "refresh" can be served from a stale cached GET while the same data
+// fetched through another URL (e.g. the external API) looks correct.
+app.use('/api/*', async (c, next) => {
+  await next();
+  c.header('Cache-Control', 'no-store, no-transform');
+  c.header('Pragma', 'no-cache');
+});
+
 // Schema bootstrap: must be registered before every route so a fresh D1 gets
 // its tables created on the first request (see src/migrate.ts). Cheap after the
 // first call — the result is memoised per isolate.

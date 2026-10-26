@@ -334,6 +334,7 @@ var I18N_EN = {
   '为保护隐私，远程图片已屏蔽': 'Remote images blocked for privacy',
   '显示图片': 'Show images',
   '已加载远程图片': 'Remote images loaded',
+  '更新于': 'updated',
 };
 
 // ========== Backend message translations (display-side only) ==========
