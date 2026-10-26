@@ -212,17 +212,17 @@ function verifySecrets() {
   try {
     const out = runWrangler(['secret', 'list'], { capture: true });
     const parsed = parseJsonArray(out);
-    if (!Array.isArray(parsed)) return;
+    if (!Array.isArray(parsed)) return { known: null, missing: [] };
     names = parsed.map((s) => (s && (s.name || s.key)) || '').filter(Boolean);
   } catch {
     // Listing needs the same permission as deploying; if it fails, stay quiet.
-    return;
+    return { known: null, missing: [] };
   }
 
   const missing = REQUIRED_SECRETS.filter((n) => !names.includes(n));
   if (!missing.length) {
     log(`Worker 上的 Secret：${names.join(', ')}`);
-    return;
+    return { known: names, missing };
   }
 
   log(`⚠️  Worker 上缺少：${missing.join(', ')}`);
@@ -231,6 +231,7 @@ function verifySecrets() {
   log('   2) 在环境里提供 ADMIN_PASSWORD / COOKIE_SECRET 后重跑本脚本，会自动写入');
   log('   注意：类型选成 Text 的变量不是 Secret，虽然本仓库已设 keep_vars = true 不会再被删，');
   log('        但仍建议改用 Secret 类型，避免明文出现在控制台和构建日志里。');
+  return { known: names, missing };
 }
 
 // ---- main ----
@@ -282,10 +283,12 @@ runWrangler(['deploy', '--keep-vars']);
 // Secrets are applied after the script exists (a brand-new Worker has no
 // secret store to write into). Existing secrets survive redeploys untouched.
 syncSecrets();
-verifySecrets();
+const secretState = verifySecrets();
 
 log('完成。打开 Worker 的网址即可登录。');
-if (!(process.env.ADMIN_PASSWORD || '').trim()) {
-  log('提示：若 Worker 上还没有 ADMIN_PASSWORD / COOKIE_SECRET，登录会提示「服务端密钥未配置」。');
-  log('  设一次就行，之后每次重新部署都会保留：控制台 Settings → Variables and Secrets，或设置环境变量后重跑本脚本。');
+// Only nudge when we actually know something is missing, or when the check could
+// not run (unknown). Printing it unconditionally contradicted the line above.
+if (secretState.missing.length > 0 || secretState.known === null) {
+  log('提示：若登录提示「服务端密钥未配置」，去控制台 Settings → Variables and Secrets 加一次就行，');
+  log('  之后每次重新部署都会保留（Secret 按 Worker 绑定，换 Worker 名字才需要重设）。');
 }

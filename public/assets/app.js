@@ -1195,23 +1195,30 @@ document.addEventListener('click', (e) => {
 });
 
 const EMAIL_PAGE_SIZE = 30;
+// Folder values that always exist, either as our static fallback options or as
+// Graph's well-known names.
+const KNOWN_FOLDERS = ['inbox', 'junkemail', 'deleteditems', 'all'];
 
 // Folder dropdown: the static options below are graph well-known names and work
 // before the real folder list arrives. Once it does, they are replaced by the
 // mailbox's actual folders (with counts), because mail can land in subfolders
 // that "inbox" alone can never show.
 async function loadFolders(accountId) {
-  if (state.folders[accountId]) return renderFolderOptions(accountId);
+  // Normalise the key: callers pass both numbers (from goToEmail) and strings
+  // (from the combobox dataset), and a mismatch would refetch on every entry.
+  const key = String(accountId);
+  if (state.folders[key]) return renderFolderOptions(key);
   const res = await api(`/accounts/${accountId}/emails/folders`);
-  if (!res?.success) return;
-  state.folders[accountId] = res.data?.folders || [];
-  renderFolderOptions(accountId);
+  if (!res?.success) return; // keep the four well-known options
+  state.folders[key] = res.data?.folders || [];
+  renderFolderOptions(key);
 }
 
 function renderFolderOptions(accountId) {
   const sel = document.getElementById('emailFolder');
   if (!sel) return;
-  const folders = state.folders[accountId];
+  const folders = state.folders[String(accountId)];
+  // Never leave the dropdown empty: the static options stay if we have nothing
   if (!folders || !folders.length) return;
 
   const previous = sel.value;
@@ -1293,7 +1300,7 @@ function updateEmailCount() {
   countEl.textContent = text;
 }
 
-async function loadEmailList(accountId) {
+async function loadEmailList(accountId, retried) {
   if (!accountId) return;
   // Folder ids are per-account: carrying one over to another mailbox would 404
   const switchingAccount = String(state.selectedAccount) !== String(accountId);
@@ -1316,8 +1323,16 @@ async function loadEmailList(accountId) {
   pane.innerHTML = '<div class="loading"><div class="spinner"></div>' + t('加载邮件...') + '</div>';
   document.getElementById('emailDetailPane').innerHTML = `<div class="empty-state">${t('选择一封邮件查看详情')}</div>`;
 
+  const sel = document.getElementById('emailFolder');
+  const chosen = sel?.value || 'inbox';
   const { items, error, hasMore } = await fetchEmailPage(accountId, 0);
   if (error) {
+    // A stale/foreign folder id (mailbox switched, folder deleted) must not
+    // leave the pane dead: fall back to the inbox once and retry.
+    if (!retried && sel && !KNOWN_FOLDERS.includes(chosen)) {
+      sel.value = [...sel.options].some((o) => o.value === 'inbox') ? 'inbox' : '';
+      return loadEmailList(accountId, true);
+    }
     pane.innerHTML = `<div class="empty-state" style="color:var(--danger)">${esc(tServer(error))}</div>`;
     return;
   }
