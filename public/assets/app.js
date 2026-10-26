@@ -1242,6 +1242,47 @@ function folderLabel(f) {
   return { text: `${'　'.repeat(f.depth || 0)}${name}${counts}`, raw: name };
 }
 
+// Graph returns folders alphabetically, which puts "Archive" first and makes a
+// mail app feel wrong. Well-known folders follow the usual client order and each
+// folder's children sit right under it.
+const FOLDER_ORDER = [
+  'inbox',
+  'drafts',
+  'sentitems',
+  'deleteditems',
+  'junkemail',
+  'archive',
+  'outbox',
+  'conversationhistory',
+];
+
+function orderFolders(folders) {
+  const rank = (f) => {
+    const i = FOLDER_ORDER.indexOf(f.wellKnown);
+    return i === -1 ? FOLDER_ORDER.length : i;
+  };
+  const ids = new Set(folders.map((f) => f.id));
+  const roots = folders.filter((f) => !f.parent || !ids.has(f.parent));
+  const childrenOf = (id) => folders.filter((f) => f.parent === id);
+
+  const out = [];
+  const seen = new Set();
+  const walk = (f, depth) => {
+    if (seen.has(f.id)) return;
+    seen.add(f.id);
+    out.push({ ...f, depth });
+    childrenOf(f.id)
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+      .forEach((c) => walk(c, depth + 1));
+  };
+
+  roots.sort((a, b) => rank(a) - rank(b) || String(a.name).localeCompare(String(b.name)));
+  roots.forEach((r) => walk(r, 0));
+  // Anything whose parent was not returned still has to show up
+  folders.filter((f) => !seen.has(f.id)).forEach((f) => walk(f, 0));
+  return out;
+}
+
 function renderFolderOptions(accountId) {
   const sel = document.getElementById('emailFolder');
   if (!sel) return;
@@ -1249,15 +1290,17 @@ function renderFolderOptions(accountId) {
   // Never leave the dropdown empty: the static options stay if we have nothing
   if (!folders || !folders.length) return;
 
-  const opts = folders.map((f) => {
+  const ordered = orderFolders(folders);
+  const opts = ordered.map((f) => {
     const label = folderLabel(f);
     return `<option value="${esc(f.id)}">${esc(label.text)}</option>`;
   }).join('');
 
+  // 全部 first: it is the default view, so it should sit where the eye lands.
   // The selected value must be the folder the list was actually loaded from,
   // otherwise the dropdown claims one thing while showing another.
   const wanted = state.emailFolder || DEFAULT_FOLDER;
-  sel.innerHTML = opts + `<option value="all">${t('全部（收件箱+垃圾箱）')}</option>`;
+  sel.innerHTML = `<option value="all">${t('全部（收件箱+垃圾箱）')}</option>` + opts;
   if ([...sel.options].some((o) => o.value === wanted)) sel.value = wanted;
   else if ([...sel.options].some((o) => o.value === DEFAULT_FOLDER)) sel.value = DEFAULT_FOLDER;
 }
