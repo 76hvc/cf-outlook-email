@@ -291,10 +291,25 @@ describe('GET /api/accounts/:id/emails/folders', () => {
   });
 
   it('returns the real folder tree with nested folders under their parent', async () => {
-    globalThis.fetch = vi.fn(async (input: any) => {
+    globalThis.fetch = vi.fn(async (input: any, init?: any) => {
       const url = String(input);
       if (url.includes('login.microsoftonline.com')) {
         return { ok: true, status: 200, json: async () => ({ access_token: 'tok' }) } as any;
+      }
+      // $batch resolving the well-known folder ids
+      if (url.endsWith('/$batch')) {
+        const asked = JSON.parse(String(init?.body ?? '{}')).requests as { id: string; url: string }[];
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            responses: asked.map((r) => ({
+              id: r.id,
+              status: r.url.includes('/inbox') ? 200 : 404,
+              body: r.url.includes('/inbox') ? { id: 'inbox-id' } : undefined,
+            })),
+          }),
+        } as any;
       }
       if (url.includes('/childFolders')) {
         return {
@@ -363,9 +378,11 @@ describe('GET /api/accounts/:id/emails/folders', () => {
 
     expect(res.status).toBe(200);
     const byId = Object.fromEntries(body.data.folders.map((f: any) => [f.id, f]));
-    expect(byId['inbox-id']).toMatchObject({ name: 'Inbox', total: 10, unread: 3, depth: 0 });
+    // The slug lets the UI label "Inbox" as 收件箱 regardless of the mailbox's
+    // own display language (another account reports "Archive" instead of 存档).
+    expect(byId['inbox-id']).toMatchObject({ name: 'Inbox', total: 10, unread: 3, depth: 0, wellKnown: 'inbox' });
     // The child folder must be present and indented, not silently dropped
-    expect(byId['child1']).toMatchObject({ name: '通知', parent: 'inbox-id', depth: 1 });
+    expect(byId['child1']).toMatchObject({ name: '通知', parent: 'inbox-id', depth: 1, wellKnown: null });
   });
 });
 

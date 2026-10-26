@@ -94,6 +94,7 @@ emails.get('/folders', async (c) => {
   const folders = (result.items ?? []).map((f) => ({
     id: f.id,
     name: f.displayName || '(未命名文件夹)',
+    wellKnown: f.wellKnown ?? null,
     total: f.totalItemCount ?? 0,
     unread: f.unreadItemCount ?? 0,
     parent: f.parentFolderId ?? null,

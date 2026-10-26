@@ -77,6 +77,7 @@ let state = {
   emailList: [],
   emailHasMore: false,
   emailUpdatedAt: '',
+  emailFolder: 'all',
   folders: {},
   selectedEmail: null,
   selectedEmailIds: new Set(),
@@ -1100,7 +1101,7 @@ async function renderEmails(el) {
           <option value="inbox">${t('收件箱')}</option>
           <option value="junkemail">${t('垃圾箱')}</option>
           <option value="deleteditems">${t('已删除')}</option>
-          <option value="all">${t('全部（收件箱+垃圾箱）')}</option>
+          <option value="all" selected>${t('全部（收件箱+垃圾箱）')}</option>
         </select>
         <input class="search-input" id="emailSearch" placeholder="${t('搜索邮件...')}" onkeydown="if(event.key==='Enter')searchEmails()">
         <button class="btn" onclick="refreshEmails()" title="${t('重新拉取当前文件夹')}" style="display:inline-flex;align-items:center;gap:6px">${refreshIcon}<span class="btn-label">${t('刷新')}</span></button>
@@ -1199,6 +1200,27 @@ const EMAIL_PAGE_SIZE = 30;
 // Graph's well-known names.
 const KNOWN_FOLDERS = ['inbox', 'junkemail', 'deleteditems', 'all'];
 
+// Graph localises displayName per mailbox, so one account says "Archive" and
+// another "存档". Well-known folders are labelled from our own dictionary
+// instead; only user-created folders keep Graph's name.
+function wellKnownLabel(slug) {
+  switch (slug) {
+    case 'inbox': return t('收件箱');
+    case 'drafts': return t('草稿');
+    case 'sentitems': return t('已发送邮件');
+    case 'deleteditems': return t('已删除');
+    case 'junkemail': return t('垃圾箱');
+    case 'archive': return t('存档');
+    case 'outbox': return t('发件箱');
+    case 'conversationhistory': return t('对话历史记录');
+    default: return '';
+  }
+}
+
+// "全部" is the default: it merges inbox + junk, which is what makes finding a
+// verification code painless, and it is where the panel should land on open.
+const DEFAULT_FOLDER = 'all';
+
 // Folder dropdown: the static options below are graph well-known names and work
 // before the real folder list arrives. Once it does, they are replaced by the
 // mailbox's actual folders (with counts), because mail can land in subfolders
@@ -1214,6 +1236,12 @@ async function loadFolders(accountId) {
   renderFolderOptions(key);
 }
 
+function folderLabel(f) {
+  const name = (f.wellKnown && wellKnownLabel(f.wellKnown)) || f.name;
+  const counts = f.total ? (f.unread ? ` (${f.unread}/${f.total})` : ` (${f.total})`) : '';
+  return { text: `${'　'.repeat(f.depth || 0)}${name}${counts}`, raw: name };
+}
+
 function renderFolderOptions(accountId) {
   const sel = document.getElementById('emailFolder');
   if (!sel) return;
@@ -1221,25 +1249,26 @@ function renderFolderOptions(accountId) {
   // Never leave the dropdown empty: the static options stay if we have nothing
   if (!folders || !folders.length) return;
 
-  const previous = sel.value;
-  const counts = (f) => {
-    if (!f.total) return '';
-    return f.unread ? ` (${f.unread}/${f.total})` : ` (${f.total})`;
-  };
-  const opts = folders.map((f) =>
-    `<option value="${esc(f.id)}">${'　'.repeat(f.depth || 0)}${esc(f.name)}${counts(f)}</option>`
-  ).join('');
+  const opts = folders.map((f) => {
+    const label = folderLabel(f);
+    return `<option value="${esc(f.id)}">${esc(label.text)}</option>`;
+  }).join('');
 
+  // The selected value must be the folder the list was actually loaded from,
+  // otherwise the dropdown claims one thing while showing another.
+  const wanted = state.emailFolder || DEFAULT_FOLDER;
   sel.innerHTML = opts + `<option value="all">${t('全部（收件箱+垃圾箱）')}</option>`;
-  // Keep the user's choice when it still exists, otherwise land on the first folder
-  if ([...sel.options].some((o) => o.value === previous)) sel.value = previous;
+  if ([...sel.options].some((o) => o.value === wanted)) sel.value = wanted;
+  else if ([...sel.options].some((o) => o.value === DEFAULT_FOLDER)) sel.value = DEFAULT_FOLDER;
 }
 
-// Fetch one page of emails. Returns { items } or { error }.
-async function fetchEmailPage(accountId, skip) {
+// Fetch one page of emails. Returns { items, hasMore } or { error }.
+// `folder` is passed explicitly so the request can never disagree with what the
+// dropdown happens to be displaying.
+async function fetchEmailPage(accountId, skip, folder) {
   const keyword = document.getElementById('emailSearch')?.value?.trim();
-  const folder = document.getElementById('emailFolder')?.value || 'inbox';
-  let url = `/accounts/${accountId}/emails?top=${EMAIL_PAGE_SIZE}&skip=${skip}&folder=${encodeURIComponent(folder)}`;
+  const picked = folder || state.emailFolder || DEFAULT_FOLDER;
+  let url = `/accounts/${accountId}/emails?top=${EMAIL_PAGE_SIZE}&skip=${skip}&folder=${encodeURIComponent(picked)}`;
   if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`;
 
   const res = await api(url);
@@ -1302,11 +1331,13 @@ function updateEmailCount() {
 
 async function loadEmailList(accountId, retried) {
   if (!accountId) return;
-  // Folder ids are per-account: carrying one over to another mailbox would 404
   const switchingAccount = String(state.selectedAccount) !== String(accountId);
   if (switchingAccount) {
+    // Folder ids are per-account and the folder list is per-account: start from
+    // the default view rather than carrying a stale id across mailboxes.
+    state.emailFolder = DEFAULT_FOLDER;
     const sel = document.getElementById('emailFolder');
-    if (sel && [...sel.options].some((o) => o.value === 'inbox')) sel.value = 'inbox';
+    if (sel && [...sel.options].some((o) => o.value === DEFAULT_FOLDER)) sel.value = DEFAULT_FOLDER;
   }
   state.selectedAccount = accountId;
   state.selectedEmail = null;
@@ -1324,18 +1355,21 @@ async function loadEmailList(accountId, retried) {
   document.getElementById('emailDetailPane').innerHTML = `<div class="empty-state">${t('选择一封邮件查看详情')}</div>`;
 
   const sel = document.getElementById('emailFolder');
-  const chosen = sel?.value || 'inbox';
-  const { items, error, hasMore } = await fetchEmailPage(accountId, 0);
+  const chosen = sel?.value || state.emailFolder || DEFAULT_FOLDER;
+  const { items, error, hasMore } = await fetchEmailPage(accountId, 0, chosen);
   if (error) {
     // A stale/foreign folder id (mailbox switched, folder deleted) must not
-    // leave the pane dead: fall back to the inbox once and retry.
-    if (!retried && sel && !KNOWN_FOLDERS.includes(chosen)) {
-      sel.value = [...sel.options].some((o) => o.value === 'inbox') ? 'inbox' : '';
+    // leave the pane dead: fall back to the default view once and retry.
+    if (!retried && !KNOWN_FOLDERS.includes(chosen)) {
+      state.emailFolder = DEFAULT_FOLDER;
+      if (sel && [...sel.options].some((o) => o.value === DEFAULT_FOLDER)) sel.value = DEFAULT_FOLDER;
       return loadEmailList(accountId, true);
     }
     pane.innerHTML = `<div class="empty-state" style="color:var(--danger)">${esc(tServer(error))}</div>`;
     return;
   }
+
+  state.emailFolder = chosen;
 
   state.emailList = items;
   state.emailHasMore = !!hasMore;
@@ -1362,7 +1396,7 @@ async function loadMoreEmails() {
   if (btn) { btn.disabled = true; btn.textContent = t('加载中...'); }
 
   const startIndex = state.emailList.length;
-  const { items, error, hasMore } = await fetchEmailPage(accountId, startIndex);
+  const { items, error, hasMore } = await fetchEmailPage(accountId, startIndex, state.emailFolder);
   if (error) {
     toast(error, 'error');
     if (btn) { btn.disabled = false; btn.textContent = t('加载更多'); }

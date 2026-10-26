@@ -222,7 +222,54 @@ export interface GraphFolder {
   unreadItemCount?: number;
   parentFolderId?: string;
   childFolderCount?: number;
+  // Well-known slug ('inbox', 'drafts', ...) when this folder is a standard one.
+  // Graph returns displayName localised per-mailbox, so one account reports
+  // "Archive" and another "存档"; the slug lets the UI use its own language.
+  wellKnown?: string;
 }
+
+// Graph has no wellKnownName field, so the ids are resolved once per request
+// through a single $batch call (1 subrequest for all of them).
+const WELL_KNOWN_FOLDERS = [
+  'inbox',
+  'drafts',
+  'sentitems',
+  'deleteditems',
+  'junkemail',
+  'archive',
+  'outbox',
+  'conversationhistory',
+];
+
+async function fetchWellKnownIds(accessToken: string): Promise<Map<string, string>> {
+  const ids = new Map<string, string>();
+  try {
+    const res = await fetch(`${GRAPH_BASE}/$batch`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: WELL_KNOWN_FOLDERS.map((name, i) => ({
+          id: String(i),
+          method: 'GET',
+          url: `/me/mailFolders/${name}?$select=id`,
+        })),
+      }),
+    });
+    if (!res.ok) return ids;
+    const data = (await res.json()) as {
+      responses?: { id: string; status: number; body?: { id?: string } }[];
+    };
+    for (const r of data.responses ?? []) {
+      const name = WELL_KNOWN_FOLDERS[Number(r.id)];
+      const id = r.body?.id;
+      if (name && id && r.status === 200) ids.set(id, name);
+    }
+  } catch {
+    // Non-fatal: the UI falls back to Graph's displayName
+  }
+  return ids;
+}
+
 
 // List the mailbox's folders so the UI is not limited to the three well-known
 // ones. Mail does land in subfolders (Outlook rules, Focused/Other splits), and
@@ -247,7 +294,10 @@ export async function listMailFolders(
   };
 
   try {
-    const root = await fetchFolders(`/me/mailFolders?$top=100&$select=${select}`);
+    const [root, wellKnown] = await Promise.all([
+      fetchFolders(`/me/mailFolders?$top=100&$select=${select}`),
+      fetchWellKnownIds(accessToken),
+    ]);
     if (!Array.isArray(root)) return { error: root };
 
     const children: GraphFolder[] = [];
@@ -259,7 +309,11 @@ export async function listMailFolders(
       if (Array.isArray(sub)) children.push(...sub);
     }
 
-    return { items: [...root, ...children] };
+    const all = [...root, ...children].map((f) => {
+      const slug = wellKnown.get(f.id);
+      return slug ? { ...f, wellKnown: slug } : f;
+    });
+    return { items: all };
   } catch (e) {
     return {
       error: { code: 'NETWORK_ERROR', message: e instanceof Error ? e.message : 'unknown' },

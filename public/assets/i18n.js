@@ -335,6 +335,11 @@ var I18N_EN = {
   '显示图片': 'Show images',
   '已加载远程图片': 'Remote images loaded',
   '更新于': 'updated',
+  '草稿': 'Drafts',
+  '已发送邮件': 'Sent Items',
+  '存档': 'Archive',
+  '发件箱': 'Outbox',
+  '对话历史记录': 'Conversation History',
 };
 
 // ========== Backend message translations (display-side only) ==========
