@@ -28,7 +28,7 @@ GET /api/external/emails
 | 参数 | 必填 | 说明 |
 |------|:----:|------|
 | `email` | ✅ | 要查询的邮箱地址（必须是后台已添加的账号） |
-| `folder` | ❌ | `inbox`(默认) / `junkemail` / `deleteditems` / `all`（收件箱+垃圾箱合并） |
+| `folder` | ❌ | `inbox`(默认) / `junkemail` / `deleteditems` / `all`（收件箱+垃圾箱合并，**取验证码建议用这个**） |
 | `top` | ❌ | 返回条数，默认 10，最大 50 |
 | `keyword` | ❌ | 搜索关键词 |
 | `includeBody` | ❌ | 传 `1` 时每封邮件额外返回 `body` 字段（完整纯文本正文，不截断） |
@@ -37,6 +37,23 @@ GET /api/external/emails
 >
 > **关于 `folder=all`（收件箱 + 垃圾箱合并）**：合并视图在服务端把两个文件夹各自最近 50 封按时间归并后返回，
 > 所以最多只能覆盖到约 100 封。返回体里的 `hasMore` 表示后面还有没有下一页；需要翻更早的邮件请指定具体 `folder`。
+
+> ### ⚠️ 取验证码请用 `folder=all`
+>
+> Outlook 会把陌生发件人的邮件判进**垃圾邮件**，验证码邮件尤其容易中招——
+> 同一封信在 `inbox` 里查不到，在 `junkemail` 里躺着是常见情况。实际踩过的例子：
+> 连发 4 封测试邮件全部进了垃圾箱，`folder=inbox` 一封都取不到。
+>
+> 所以自动取验证码时请用：
+>
+> ```
+> GET /api/external/emails?email=xxx&folder=all&top=5&includeBody=1
+> ```
+>
+> `all` = 收件箱 + 垃圾箱按时间合并，一封都不会漏。面板的默认视图也是「全部」，原因相同。
+>
+> 如果某类邮件总是被判垃圾，可以在 Outlook 网页版把发件人加进白名单，或建一条规则标记为「非垃圾邮件」。
+
 
 ### 导入账号
 
@@ -144,7 +161,7 @@ curl "https://你的域名/api/external/emails?email=abc@outlook.com&key=你的K
 **请求头方式（更安全，Key 不出现在 URL / 日志里）**
 
 ```bash
-curl "https://你的域名/api/external/emails?email=abc@outlook.com" \
+curl "https://你的域名/api/external/emails?email=abc@outlook.com&folder=all&top=5" \
   -H "X-API-Key: 你的Key"
 ```
 
@@ -152,7 +169,7 @@ curl "https://你的域名/api/external/emails?email=abc@outlook.com" \
 
 ```bash
 # 只取最新 1 封并带完整正文；对比 bodyPreview（最多 255 字符）与 body（完整）
-curl "https://你的域名/api/external/emails?email=abc@outlook.com&top=1&includeBody=1" \
+curl "https://你的域名/api/external/emails?email=abc@outlook.com&folder=all&top=1&includeBody=1" \
   -H "X-API-Key: 你的Key"
 ```
 
